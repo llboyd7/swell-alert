@@ -1,0 +1,51 @@
+name: Log Surf Session Rating
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  log-session:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Log the rating
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: python feedback_log.py
+
+      - name: Commit sessions log
+        run: |
+          git config user.name "swell-alert-bot"
+          git config user.email "actions@github.com"
+          git add sessions.csv || true
+          git diff --cached --quiet || git commit -m "Log surf session rating [skip ci]"
+          git push || true
+
+      - name: Thank and close the issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: "🤙 Session logged to sessions.csv with the buoy conditions. Thanks — this sharpens future alerts."
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: "closed"
+            });
