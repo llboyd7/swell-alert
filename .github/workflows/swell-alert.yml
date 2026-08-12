@@ -1,0 +1,42 @@
+name: Swell Alert
+
+on:
+  # ── HOURLY AUTO-RUN IS OFF BY DEFAULT ──
+  # Uncomment the two lines below AFTER you've added the GMAIL_ADDRESS,
+  # GMAIL_APP_PASSWORD, and RECIPIENTS secrets. Until then, use the
+  # "Run workflow" button (workflow_dispatch) to test manually.
+  # schedule:
+  #   - cron: "15 * * * *"   # every hour at :15 (NDBC posts on the hour)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: swell-alert
+  cancel-in-progress: false
+
+jobs:
+  check-swell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run swell check
+        env:
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
+        run: python swell_alert.py
+
+      - name: Save state and observation log
+        run: |
+          git config user.name "swell-alert-bot"
+          git config user.email "actions@github.com"
+          git add state.json observations.csv || true
+          git diff --cached --quiet || git commit -m "Update state + observations [skip ci]"
+          git push || true
