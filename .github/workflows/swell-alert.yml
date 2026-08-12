@@ -1,12 +1,8 @@
 name: Swell Alert
 
 on:
-  # ── HOURLY AUTO-RUN IS OFF BY DEFAULT ──
-  # Uncomment the two lines below AFTER you've added the GMAIL_ADDRESS,
-  # GMAIL_APP_PASSWORD, and RECIPIENTS secrets. Until then, use the
-  # "Run workflow" button (workflow_dispatch) to test manually.
-  # schedule:
-  #   - cron: "15 * * * *"   # every hour at :15 (NDBC posts on the hour)
+  schedule:
+    - cron: "15 * * * *"   # every hour at :15 (NDBC posts on the hour)
   workflow_dispatch: {}
 
 permissions:
