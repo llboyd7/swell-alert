@@ -1,0 +1,115 @@
+{
+  "updated_utc": "2026-08-12 20:28 UTC",
+  "tier": null,
+  "wind_ideal": false,
+  "offshore": {
+    "station": "41013",
+    "name": "Frying Pan Shoals",
+    "swell_ht_ft": 1.6,
+    "swell_period_s": 5.3,
+    "swell_dir": "SW",
+    "seas_ft": 2.3,
+    "time_utc": "2026-08-12 19:40Z"
+  },
+  "nearshore": {
+    "station": "41110",
+    "name": "Masonboro Inlet",
+    "wvht_ft": 2.0,
+    "dpd_s": 3.0,
+    "time_utc": "2026-08-12 20:00Z"
+  },
+  "wind": {
+    "station": "JMPN7",
+    "name": "Johnnie Mercer's Pier",
+    "kt": 12.1,
+    "dir_compass": "S",
+    "dir_deg": 190.0,
+    "time_utc": "2026-08-12 19:48Z"
+  },
+  "forecast": [
+    {
+      "date": "2026-08-12",
+      "max_swell_ft": 1.1,
+      "period_s": 3.2,
+      "dir_deg": 184,
+      "dir_compass": "S",
+      "ideal_dir": false,
+      "wind_8am_kt": 4.5,
+      "wind_8am_compass": "NW",
+      "is_swell_day": false
+    },
+    {
+      "date": "2026-08-13",
+      "max_swell_ft": 0.9,
+      "period_s": 2.7,
+      "dir_deg": 184,
+      "dir_compass": "S",
+      "ideal_dir": false,
+      "wind_8am_kt": 2.4,
+      "wind_8am_compass": "SW",
+      "is_swell_day": false
+    },
+    {
+      "date": "2026-08-14",
+      "max_swell_ft": 1.0,
+      "period_s": 3.35,
+      "dir_deg": 170,
+      "dir_compass": "S",
+      "ideal_dir": true,
+      "wind_8am_kt": 3.1,
+      "wind_8am_compass": "W",
+      "is_swell_day": false
+    },
+    {
+      "date": "2026-08-15",
+      "max_swell_ft": 1.4,
+      "period_s": 3.4,
+      "dir_deg": 186,
+      "dir_compass": "S",
+      "ideal_dir": false,
+      "wind_8am_kt": 8.8,
+      "wind_8am_compass": "ENE",
+      "is_swell_day": false
+    },
+    {
+      "date": "2026-08-16",
+      "max_swell_ft": 1.1,
+      "period_s": 3.55,
+      "dir_deg": 177,
+      "dir_compass": "S",
+      "ideal_dir": true,
+      "wind_8am_kt": 4.4,
+      "wind_8am_compass": "SE",
+      "is_swell_day": false
+    },
+    {
+      "date": "2026-08-17",
+      "max_swell_ft": 1.0,
+      "period_s": 6.85,
+      "dir_deg": 137,
+      "dir_compass": "SE",
+      "ideal_dir": true,
+      "wind_8am_kt": 3.6,
+      "wind_8am_compass": "WSW",
+      "is_swell_day": false
+    },
+    {
+      "date": "2026-08-18",
+      "max_swell_ft": 1.4,
+      "period_s": 8.1,
+      "dir_deg": 129,
+      "dir_compass": "SE",
+      "ideal_dir": true,
+      "wind_8am_kt": 6.1,
+      "wind_8am_compass": "N",
+      "is_swell_day": false
+    }
+  ],
+  "thresholds": {
+    "fire_period": 14.0,
+    "fire_min_height_ft": 3.0,
+    "heads_up_period": 12.0,
+    "fcst_min_period": 12.0,
+    "fcst_min_height_ft": 2.5
+  }
+}

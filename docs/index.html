@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swell Alert — Wrightsville Beach</title>
+<style>
+  :root{
+    --bg:#f3f6f9; --panel:#ffffff; --ink:#0d2233; --muted:#5a7184;
+    --line:#e2e9f0; --accent:#0a7ea4; --good:#12855f; --warn:#c26a12;
+    --fire:#d63c2f; --chip:#eef4f8; --shadow:0 1px 3px rgba(13,34,51,.08),0 8px 24px rgba(13,34,51,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0a1620; --panel:#0f2130; --ink:#e8f0f6; --muted:#8ba6b8;
+      --line:#1d3546; --accent:#3fb6da; --good:#3ecf9a; --warn:#e5a24a;
+      --fire:#ff6b5c; --chip:#13293a; --shadow:0 1px 3px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:24px 18px 64px}
+  header{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px;margin-bottom:6px}
+  h1{font-size:1.5rem;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:.9rem}
+  .updated{margin:2px 0 22px;color:var(--muted);font-size:.82rem}
+  .updated b{color:var(--ink);font-weight:600}
+
+  .hero{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:22px 24px;box-shadow:var(--shadow);margin-bottom:18px;
+    border-left:5px solid var(--muted)}
+  .hero.is-flat{border-left-color:var(--muted)}
+  .hero.is-up{border-left-color:var(--accent)}
+  .hero.is-fire{border-left-color:var(--fire)}
+  .hero .state{font-size:1.35rem;font-weight:700;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .hero .detail{color:var(--muted);font-size:.95rem}
+  .hero .detail b{color:var(--ink)}
+
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;box-shadow:var(--shadow)}
+  .card .label{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    display:flex;justify-content:space-between;align-items:center}
+  .card .label .stn{font-weight:600;color:var(--accent)}
+  .card .big{font-size:1.7rem;font-weight:700;margin:8px 0 2px;letter-spacing:-.02em}
+  .card .row{font-size:.9rem;color:var(--muted)}
+  .card .row b{color:var(--ink);font-weight:600}
+  .tag{display:inline-block;font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:999px;
+    background:var(--chip);color:var(--muted);margin-top:8px}
+  .tag.good{background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good)}
+  .tag.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+
+  h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:0 0 12px;font-weight:600}
+  .fc{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+  @media(max-width:720px){.fc{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:420px){.fc{grid-template-columns:repeat(2,1fr)}}
+  .day{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 10px;
+    text-align:center;box-shadow:var(--shadow);position:relative}
+  .day.hit{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+  .day .dow{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .day .dm{font-size:.72rem;color:var(--muted);margin-bottom:6px}
+  .day .ht{font-size:1.25rem;font-weight:700;letter-spacing:-.02em}
+  .day .pd{font-size:.8rem;color:var(--muted)}
+  .day .dir{font-size:.78rem;margin-top:4px}
+  .day .dir.ok{color:var(--good);font-weight:600}
+  .day .wind{font-size:.72rem;color:var(--muted);margin-top:5px}
+  .day .star{position:absolute;top:-8px;right:-6px;font-size:1rem}
+
+  footer{margin-top:30px;color:var(--muted);font-size:.8rem;line-height:1.7}
+  footer a{color:var(--accent)}
+  .legend{margin-top:6px}
+  #err{display:none;background:color-mix(in srgb,var(--fire) 12%,transparent);
+    border:1px solid var(--fire);color:var(--fire);padding:12px 16px;border-radius:12px;margin-bottom:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🌊 Swell Alert</h1>
+    <span class="sub">Wrightsville Beach, NC</span>
+  </header>
+  <div class="updated">Updated <b id="updated">…</b> · buoys refresh hourly · <span id="ago"></span></div>
+
+  <div id="err">Couldn’t load the latest data. It refreshes hourly — try again shortly.</div>
+
+  <div class="hero" id="hero">
+    <div class="state" id="state">Loading conditions…</div>
+    <div class="detail" id="heroDetail"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label"><span>Offshore swell</span><span class="stn" id="offStn">41013</span></div>
+      <div class="big" id="offBig">—</div>
+      <div class="row" id="offRow"></div>
+      <div id="offTag"></div>
+    </div>
+    <div class="card">
+      <div class="label"><span>Nearshore</span><span class="stn" id="nearStn">41110</span></div>
+      <div class="big" id="nearBig">—</div>
+      <div class="row" id="nearRow"></div>
+    </div>
+    <div class="card">
+      <div class="label"><span>Wind</span><span class="stn" id="windStn">JMPN7</span></div>
+      <div class="big" id="windBig">—</div>
+      <div class="row" id="windRow"></div>
+      <div id="windTag"></div>
+    </div>
+  </div>
+
+  <h2>7-day outlook</h2>
+  <div class="fc" id="fc"></div>
+
+  <footer>
+    <div class="legend">⭐ = projected swell day (meets the OUTLOOK threshold) · green direction = E–S ideal window.</div>
+    <div>Sources: NDBC buoys 41013 / 41110 + JMPN7, and the Open-Meteo marine model. This page is the same data the email alerts use.</div>
+    <div id="thr"></div>
+  </footer>
+</div>
+
+<script>
+const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const f1 = v => (v===null||v===undefined) ? "—" : v;
+
+function agoText(iso){
+  // iso like "2026-08-12 20:28 UTC"
+  const t = Date.parse(iso.replace(" UTC","Z").replace(" ","T"));
+  if(isNaN(t)) return "";
+  const mins = Math.round((Date.now()-t)/60000);
+  if(mins < 1) return "just now";
+  if(mins < 60) return mins+" min ago";
+  const h = Math.floor(mins/60);
+  return h+"h "+(mins%60)+"m ago";
+}
+
+function render(d){
+  document.getElementById("updated").textContent = d.updated_utc;
+  document.getElementById("ago").textContent = agoText(d.updated_utc);
+
+  // Hero
+  const hero = document.getElementById("hero");
+  const state = document.getElementById("state");
+  const detail = document.getElementById("heroDetail");
+  const o = d.offshore;
+  hero.className = "hero " + (d.tier==="FIRE"?"is-fire":d.tier==="HEADS_UP"?"is-up":"is-flat");
+  if(d.tier==="FIRE"){
+    state.textContent = "🔥 It’s on";
+    detail.innerHTML = `Long-period energy confirmed — <b>${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s</b> from <b>${f1(o.swell_dir)}</b> at Frying Pan Shoals.`;
+  } else if(d.tier==="HEADS_UP"){
+    state.textContent = "🌊 Long-period energy showing";
+    detail.innerHTML = `<b>${f1(o.swell_period_s)}s</b> swell from <b>${f1(o.swell_dir)}</b> at the buoy — worth a look.`;
+  } else {
+    state.textContent = "😴 Flat / short-period";
+    detail.innerHTML = `Nothing running right now — offshore reading <b>${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s</b>. The alert watches hourly.`;
+  }
+
+  // Offshore card
+  document.getElementById("offStn").textContent = o.station;
+  document.getElementById("offBig").textContent = `${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s`;
+  document.getElementById("offRow").innerHTML = `from <b>${f1(o.swell_dir)}</b> · seas <b>${f1(o.seas_ft)} ft</b>`;
+  const ot = document.getElementById("offTag");
+  if(d.tier==="FIRE"){ ot.innerHTML = `<span class="tag warn">firing 🔥</span>`; }
+  else if(d.tier==="HEADS_UP"){ ot.innerHTML = `<span class="tag warn">long-period</span>`; }
+  else { ot.innerHTML = `<span class="tag">below alert threshold</span>`; }
+
+  // Nearshore
+  const n = d.nearshore;
+  document.getElementById("nearStn").textContent = n.station;
+  document.getElementById("nearBig").textContent = `${f1(n.wvht_ft)} ft`;
+  document.getElementById("nearRow").innerHTML = `dominant period <b>${f1(n.dpd_s)}s</b>`;
+
+  // Wind
+  const w = d.wind;
+  document.getElementById("windStn").textContent = w.station;
+  document.getElementById("windBig").textContent = `${f1(w.kt)} kt`;
+  document.getElementById("windRow").innerHTML = `from <b>${f1(w.dir_compass)}</b> (${f1(w.dir_deg)}°)`;
+  document.getElementById("windTag").innerHTML = d.wind_ideal
+    ? `<span class="tag good">offshore — ideal 🙌</span>`
+    : `<span class="tag">not offshore yet</span>`;
+
+  // Forecast
+  const fc = document.getElementById("fc");
+  fc.innerHTML = "";
+  d.forecast.forEach(day=>{
+    const dt = new Date(day.date+"T12:00:00");
+    const el = document.createElement("div");
+    el.className = "day" + (day.is_swell_day?" hit":"");
+    el.innerHTML = `
+      ${day.is_swell_day?'<div class="star">⭐</div>':''}
+      <div class="dow">${DOW[dt.getUTCDay()]}</div>
+      <div class="dm">${dt.getUTCMonth()+1}/${dt.getUTCDate()}</div>
+      <div class="ht">${f1(day.max_swell_ft)}ft</div>
+      <div class="pd">@ ${f1(day.period_s)}s</div>
+      <div class="dir ${day.ideal_dir?'ok':''}">${f1(day.dir_compass)}${day.ideal_dir?' ✓':''}</div>
+      <div class="wind">${day.wind_8am_kt!==null?('☼ '+f1(day.wind_8am_kt)+'kt '+f1(day.wind_8am_compass)):''}</div>`;
+    fc.appendChild(el);
+  });
+
+  const t = d.thresholds;
+  document.getElementById("thr").textContent =
+    `Thresholds — LIVE: ${t.heads_up_period}s (🔥 ${t.fire_period}s at ${t.fire_min_height_ft}ft+) · OUTLOOK: ${t.fcst_min_period}s at ${t.fcst_min_height_ft}ft+.`;
+}
+
+function load(){
+  fetch("./data.json?_="+Date.now())
+    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d=>{ document.getElementById("err").style.display="none"; render(d); })
+    .catch(()=>{ document.getElementById("err").style.display="block"; });
+}
+load();
+setInterval(load, 5*60*1000);   // re-check every 5 min in case the hourly job refreshed
+</script>
+</body>
+</html>
