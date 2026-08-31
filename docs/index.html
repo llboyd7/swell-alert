@@ -68,6 +68,7 @@
   .day .dir{font-size:.78rem;margin-top:4px}
   .day .dir.ok{color:var(--good);font-weight:600}
   .day .wind{font-size:.72rem;color:var(--muted);margin-top:5px}
+  .day .wind.ok{color:var(--good);font-weight:600}
   .day .star{position:absolute;top:-8px;right:-6px;font-size:1rem}
 
   footer{margin-top:30px;color:var(--muted);font-size:.8rem;line-height:1.7}
@@ -116,7 +117,7 @@
   <div class="fc" id="fc"></div>
 
   <footer>
-    <div class="legend">⭐ = projected swell day (meets the OUTLOOK threshold) · green direction = E–S ideal window.</div>
+    <div class="legend">⭐ = day worth a surf (meets the OUTLOOK threshold) · green direction = E–S ideal window · 🙌 = offshore dawn wind.</div>
     <div>Sources: NDBC buoys 41013 / 41110 + JMPN7, and the Open-Meteo marine model. This page is the same data the email alerts use.</div>
     <div id="thr"></div>
   </footer>
@@ -189,20 +190,21 @@ function render(d){
     const dt = new Date(day.date+"T12:00:00");
     const el = document.createElement("div");
     el.className = "day" + (day.is_swell_day?" hit":"");
+    const hasWind = day.wind_8am_kt!==null && day.wind_8am_kt!==undefined;
     el.innerHTML = `
       ${day.is_swell_day?'<div class="star">⭐</div>':''}
       <div class="dow">${DOW[dt.getUTCDay()]}</div>
       <div class="dm">${dt.getUTCMonth()+1}/${dt.getUTCDate()}</div>
-      <div class="ht">${f1(day.max_swell_ft)}ft</div>
-      <div class="pd">@ ${f1(day.period_s)}s</div>
+      <div class="ht">${f1(day.total_ft)}ft</div>
+      <div class="pd">swell @ ${f1(day.period_s)}s</div>
       <div class="dir ${day.ideal_dir?'ok':''}">${f1(day.dir_compass)}${day.ideal_dir?' ✓':''}</div>
-      <div class="wind">${day.wind_8am_kt!==null?('☼ '+f1(day.wind_8am_kt)+'kt '+f1(day.wind_8am_compass)):''}</div>`;
+      <div class="wind ${day.wind_8am_offshore?'ok':''}">${hasWind?('☼ '+f1(day.wind_8am_kt)+'kt '+f1(day.wind_8am_compass)+(day.wind_8am_offshore?' 🙌':'')):''}</div>`;
     fc.appendChild(el);
   });
 
   const t = d.thresholds;
   document.getElementById("thr").textContent =
-    `Thresholds — LIVE: ${t.heads_up_period}s (🔥 ${t.fire_period}s at ${t.fire_min_height_ft}ft+) · OUTLOOK: ${t.fcst_min_period}s at ${t.fcst_min_height_ft}ft+.`;
+    `Thresholds — LIVE buoy: ${t.heads_up_period}s (🔥 ${t.fire_period}s at ${t.fire_min_height_ft}ft+) · OUTLOOK: ${t.fcst_min_total_ft}ft surf, or ${t.fcst_swell_min_height_ft}ft swell at ${t.fcst_swell_min_period}s+.`;
 }
 
 function load(){

@@ -37,9 +37,11 @@ HEADS_UP_PERIOD = 12.0
 FIRE_PERIOD = 14.0
 FIRE_MIN_HEIGHT_FT = 3.0
 
-# Forecast tiers — what counts as a "swell day" worth projecting
-FCST_MIN_PERIOD = 12.0    # seconds (swell wave period)
-FCST_MIN_HEIGHT_FT = 2.5  # swell height
+# Forecast alert thresholds — "worth a heads-up" for a beach break.
+# A day earns an OUTLOOK if EITHER condition holds (Sensitive preset):
+FCST_MIN_TOTAL_FT = 2.5          # total surf height is fun-size on its own, OR
+FCST_SWELL_MIN_HEIGHT_FT = 1.5   # a cleaner swell at least this tall...
+FCST_SWELL_MIN_PERIOD = 7.0      # ...at this period or longer
 
 # Ideal wind at Wrightsville (faces ~SE; NW through NE = offshore/cross-off)
 OFFSHORE_WIND_MIN_DEG = 280
@@ -160,12 +162,17 @@ def fetch_forecast():
     days = {}
     for i, ts in enumerate(marine["time"]):
         date = ts[:10]
+        d = days.setdefault(date, {"date": date, "max_swell_ft": 0, "max_total_ft": 0,
+                                   "period_at_max": None, "dir_at_max_deg": None})
+        tot_m = marine["wave_height"][i]
+        if tot_m is not None:
+            tot_ft = tot_m * M_TO_FT
+            if tot_ft > d["max_total_ft"]:
+                d["max_total_ft"] = round(tot_ft, 1)
         ht_m = marine["swell_wave_height"][i]
         if ht_m is None:
             continue
         ht_ft = ht_m * M_TO_FT
-        d = days.setdefault(date, {"date": date, "max_swell_ft": 0,
-                                   "period_at_max": None, "dir_at_max_deg": None})
         if ht_ft > d["max_swell_ft"]:
             d["max_swell_ft"] = round(ht_ft, 1)
             d["period_at_max"] = marine["swell_wave_period"][i]
@@ -179,13 +186,18 @@ def fetch_forecast():
     return sorted(days.values(), key=lambda d: d["date"])
 
 
+def forecast_day_qualifies(d) -> bool:
+    """Sensitive preset: fun-size total surf OR a decent mid-period swell."""
+    total = d.get("max_total_ft") or 0
+    swell = d.get("max_swell_ft") or 0
+    period = d.get("period_at_max") or 0
+    return total >= FCST_MIN_TOTAL_FT or (
+        swell >= FCST_SWELL_MIN_HEIGHT_FT and period >= FCST_SWELL_MIN_PERIOD)
+
+
 def find_swell_days(forecast):
-    """Days meeting the projection thresholds."""
-    hits = []
-    for d in forecast:
-        if (d.get("period_at_max") or 0) >= FCST_MIN_PERIOD and d["max_swell_ft"] >= FCST_MIN_HEIGHT_FT:
-            hits.append(d)
-    return hits
+    """Days worth an OUTLOOK under the current thresholds."""
+    return [d for d in forecast if forecast_day_qualifies(d)]
 
 
 def describe_day(d) -> str:
@@ -197,8 +209,10 @@ def describe_day(d) -> str:
         offshore = in_window(d.get("wind_8am_deg"), OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG)
         tag = "offshore 🙌" if offshore and d["wind_8am_kt"] <= MAX_WIND_KT else "onshore/strong"
         wind = f" | 8am wind {d['wind_8am_kt']:.0f}kt {wdir} ({tag})"
-    return (f"{d['date']}: {d['max_swell_ft']}ft @ {d['period_at_max']:.0f}s "
-            f"from {swell_dir} ({quality}){wind}")
+    period = d.get("period_at_max")
+    pstr = f"{period:.0f}s" if period else "short-period"
+    return (f"{d['date']}: {d.get('max_total_ft', 0)}ft surf "
+            f"(swell {d['max_swell_ft']}ft @ {pstr} from {swell_dir}) ({quality}){wind}")
 
 
 # ─────────────────── STATE / LOG / EMAIL ───────────────────────
@@ -292,7 +306,7 @@ def check_forecast(state) -> dict:
     lines = "\n".join("  " + describe_day(d) for d in swell_days)
 
     if new_dates:
-        subject = f"🔭 SWELL OUTLOOK: {swell_days[0]['max_swell_ft']}ft @ {swell_days[0]['period_at_max']:.0f}s projected {dates[0]} ({days_out} days out)"
+        subject = f"🔭 SWELL OUTLOOK: {swell_days[0]['max_total_ft']}ft surf projected {dates[0]} ({days_out} days out)"
         body = (f"7-day model projection — Wrightsville Beach\n\nProjected swell days:\n{lines}\n\n"
                 f"Model: Open-Meteo marine (WaveWatch-class). Expect refinement as it gets closer;\n"
                 f"buoy confirmation alerts will follow when energy actually shows at Frying Pan Shoals.\n")

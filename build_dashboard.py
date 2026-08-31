@@ -47,6 +47,7 @@ def main():
             period_at_max = d.get("period_at_max")
             forecast.append({
                 "date": d["date"],
+                "total_ft": d.get("max_total_ft"),
                 "max_swell_ft": d["max_swell_ft"],
                 "period_s": period_at_max,
                 "dir_deg": d.get("dir_at_max_deg"),
@@ -54,9 +55,12 @@ def main():
                 "ideal_dir": s.in_window(d.get("dir_at_max_deg"),
                                          s.IDEAL_SWELL_MIN_DEG, s.IDEAL_SWELL_MAX_DEG),
                 "wind_8am_kt": d.get("wind_8am_kt"),
+                "wind_8am_deg": d.get("wind_8am_deg"),
                 "wind_8am_compass": s.deg_to_compass(d.get("wind_8am_deg")),
-                "is_swell_day": (period_at_max or 0) >= s.FCST_MIN_PERIOD
-                                and d["max_swell_ft"] >= s.FCST_MIN_HEIGHT_FT,
+                "wind_8am_offshore": s.in_window(d.get("wind_8am_deg"),
+                                                 s.OFFSHORE_WIND_MIN_DEG, s.OFFSHORE_WIND_MAX_DEG)
+                                     and (d.get("wind_8am_kt") or 99) <= s.MAX_WIND_KT,
+                "is_swell_day": s.forecast_day_qualifies(d),
             })
     except Exception as e:
         print(f"Forecast fetch failed (dashboard will show buoy only): {e}")
@@ -90,7 +94,9 @@ def main():
         "thresholds": {
             "fire_period": s.FIRE_PERIOD, "fire_min_height_ft": s.FIRE_MIN_HEIGHT_FT,
             "heads_up_period": s.HEADS_UP_PERIOD,
-            "fcst_min_period": s.FCST_MIN_PERIOD, "fcst_min_height_ft": s.FCST_MIN_HEIGHT_FT,
+            "fcst_min_total_ft": s.FCST_MIN_TOTAL_FT,
+            "fcst_swell_min_height_ft": s.FCST_SWELL_MIN_HEIGHT_FT,
+            "fcst_swell_min_period": s.FCST_SWELL_MIN_PERIOD,
         },
     }
 
