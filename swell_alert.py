@@ -43,9 +43,13 @@ FCST_MIN_TOTAL_FT = 2.5          # total surf height is fun-size on its own, OR
 FCST_SWELL_MIN_HEIGHT_FT = 1.5   # a cleaner swell at least this tall...
 FCST_SWELL_MIN_PERIOD = 7.0      # ...at this period or longer
 
-# Ideal wind at Wrightsville (faces ~SE; NW through NE = offshore/cross-off)
-OFFSHORE_WIND_MIN_DEG = 280
-OFFSHORE_WIND_MAX_DEG = 45
+# Wind at Wrightsville (beach faces ~ESE). Offshore/clean wind blows off the
+# land — the WSW→W→NW→N→NE arc. Onshore (junky) blows in off the ocean —
+# ENE→E→SE→S. Anything in the gaps (NE–ENE, S–SW) is cross-shore.
+OFFSHORE_WIND_MIN_DEG = 245   # WSW
+OFFSHORE_WIND_MAX_DEG = 45    # NE
+ONSHORE_WIND_MIN_DEG = 60     # ENE
+ONSHORE_WIND_MAX_DEG = 190    # S
 MAX_WIND_KT = 15.0
 
 # Best swell window for Wrightsville (degrees the swell comes FROM)
@@ -106,6 +110,22 @@ def in_window(deg, lo, hi) -> bool:
     if lo <= hi:
         return lo <= deg <= hi
     return deg >= lo or deg <= hi
+
+
+def wind_label(deg, kt) -> str:
+    """Surfer-style wind read: direction class + strength (beach faces ~ESE)."""
+    if deg is None or kt is None:
+        return "wind n/a"
+    if in_window(deg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG):
+        cls = "offshore"
+    elif in_window(deg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG):
+        cls = "onshore"
+    else:
+        cls = "cross-shore"
+    strong = kt > MAX_WIND_KT
+    if cls == "offshore":
+        return "offshore but strong" if strong else "offshore 🙌"
+    return f"{cls}/strong" if strong else cls
 
 
 # ───────────────────── LIVE BUOY READS ─────────────────────────
@@ -206,8 +226,7 @@ def describe_day(d) -> str:
     wind = ""
     if d.get("wind_8am_kt") is not None:
         wdir = deg_to_compass(d.get("wind_8am_deg"))
-        offshore = in_window(d.get("wind_8am_deg"), OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG)
-        tag = "offshore 🙌" if offshore and d["wind_8am_kt"] <= MAX_WIND_KT else "onshore/strong"
+        tag = wind_label(d.get("wind_8am_deg"), d.get("wind_8am_kt"))
         wind = f" | 8am wind {d['wind_8am_kt']:.0f}kt {wdir} ({tag})"
     period = d.get("period_at_max")
     pstr = f"{period:.0f}s" if period else "short-period"
@@ -355,9 +374,7 @@ def check_buoys(state) -> dict:
         print("Live alert cooldown active.")
         return state
 
-    ideal_wind = in_window(wind.get("wind_dir_deg"), OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG) \
-        and (wind.get("wind_kt") or 99) <= MAX_WIND_KT
-    wind_txt = "IDEAL — offshore wind" if ideal_wind else "wind not cooperating yet"
+    wind_txt = wind_label(wind.get("wind_dir_deg"), wind.get("wind_kt"))
     swell_dir = offshore.get("swell_dir", "?")
 
     if tier == "FIRE":
