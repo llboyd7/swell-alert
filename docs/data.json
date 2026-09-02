@@ -1,5 +1,5 @@
 {
-  "updated_utc": "2026-09-02 16:39 UTC",
+  "updated_utc": "2026-09-02 16:48 UTC",
   "tier": null,
   "wind_ideal": false,
   "offshore": {
@@ -21,10 +21,10 @@
   "wind": {
     "station": "JMPN7",
     "name": "Johnnie Mercer's Pier",
-    "kt": 1.9,
-    "dir_compass": "SE",
-    "dir_deg": 130.0,
-    "time_utc": "2026-09-02 15:48Z"
+    "kt": 2.9,
+    "dir_compass": "S",
+    "dir_deg": 170.0,
+    "time_utc": "2026-09-02 16:00Z"
   },
   "forecast": [
     {
@@ -40,7 +40,7 @@
       "wind_8am_compass": "W",
       "wind_8am_offshore": true,
       "is_swell_day": true,
-      "quality": "PRIME"
+      "quality": "B"
     },
     {
       "date": "2026-09-03",
@@ -55,7 +55,7 @@
       "wind_8am_compass": "W",
       "wind_8am_offshore": true,
       "is_swell_day": true,
-      "quality": "PRIME"
+      "quality": "B"
     },
     {
       "date": "2026-09-04",
@@ -100,7 +100,7 @@
       "wind_8am_compass": "N",
       "wind_8am_offshore": true,
       "is_swell_day": true,
-      "quality": "PRIME"
+      "quality": "B"
     },
     {
       "date": "2026-09-07",
@@ -115,7 +115,7 @@
       "wind_8am_compass": "ENE",
       "wind_8am_offshore": false,
       "is_swell_day": true,
-      "quality": "GOOD"
+      "quality": "C"
     },
     {
       "date": "2026-09-08",
@@ -130,7 +130,7 @@
       "wind_8am_compass": "NE",
       "wind_8am_offshore": false,
       "is_swell_day": true,
-      "quality": "GOOD"
+      "quality": "C"
     }
   ],
   "thresholds": {
