@@ -50,6 +50,16 @@ FCST_SWELL_MIN_PERIOD = 6.5      # ...at this period or longer
 # does NOT earn an OUTLOOK if the swell is off-angle or it's blown out onshore.
 FCST_MAX_ONSHORE_KT = 12.0       # 8am onshore wind stronger than this = junk, skip
 
+# Quality grade for a qualifying day. Juice = size x period (calibrated from
+# real sessions: 2ft@7s rated 7/10 "longboard fun", 3ft@11s rated 9/10 "Grade A").
+GRADE_A_PERIOD = 10.0            # period >= this ...
+GRADE_A_TOTAL_FT = 3.0          # ... or total surf >= this = Grade A juice
+GRADE_LABELS = {                 # grade -> (emoji, phrase)
+    "A": ("🏆", "Grade A — juicy, all boards"),
+    "B": ("⭐", "Grade B — clean & fun, longboard"),
+    "C": ("〰️", "Grade C — rideable, wind's off"),
+}
+
 # Wind at Wrightsville (beach faces ~ESE). Offshore/clean wind blows off the
 # land — the WSW→W→NW→N→NE arc. Onshore (junky) blows in off the ocean —
 # ENE→E→SE→S. Anything in the gaps (NE–ENE, S–SW) is cross-shore.
@@ -235,11 +245,16 @@ def forecast_day_qualifies(d) -> bool:
 
 
 def forecast_day_quality(d) -> str:
-    """PRIME = clean offshore dawn wind on top of a qualifying day; else GOOD."""
+    """Letter grade for a qualifying day: A = juicy/all-boards, B = clean/
+    longboard fun, C = rideable but the wind's off."""
     wkt, wdeg = d.get("wind_8am_kt"), d.get("wind_8am_deg")
     offshore = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG) \
         and (wkt or 99) <= MAX_WIND_KT
-    return "PRIME" if offshore else "GOOD"
+    if not offshore:
+        return "C"
+    period = d.get("period_at_max") or 0
+    total = d.get("max_total_ft") or 0
+    return "A" if (period >= GRADE_A_PERIOD or total >= GRADE_A_TOTAL_FT) else "B"
 
 
 def find_swell_days(forecast):
@@ -257,8 +272,8 @@ def describe_day(d) -> str:
         wind = f" | 8am wind {d['wind_8am_kt']:.0f}kt {wdir} ({tag})"
     period = d.get("period_at_max")
     pstr = f"{period:.0f}s" if period else "short-period"
-    prime = "🏆 PRIME — " if forecast_day_quality(d) == "PRIME" else ""
-    return (f"{d['date']}: {prime}{d.get('max_total_ft', 0)}ft surf "
+    emoji, gtxt = GRADE_LABELS[forecast_day_quality(d)]
+    return (f"{d['date']}: {emoji} {gtxt} — {d.get('max_total_ft', 0)}ft surf "
             f"(swell {d['max_swell_ft']}ft @ {pstr} from {swell_dir}) ({angle_txt}){wind}")
 
 
@@ -353,7 +368,9 @@ def check_forecast(state) -> dict:
     lines = "\n".join("  " + describe_day(d) for d in swell_days)
 
     if new_dates:
-        subject = f"🔭 SWELL OUTLOOK: {swell_days[0]['max_total_ft']}ft surf projected {dates[0]} ({days_out} days out)"
+        _g0 = forecast_day_quality(swell_days[0])
+        _e0, _ = GRADE_LABELS[_g0]
+        subject = f"🔭 OUTLOOK {_e0} Grade {_g0}: {swell_days[0]['max_total_ft']}ft surf projected {dates[0]} ({days_out} days out)"
         body = (f"7-day model projection — Wrightsville Beach\n\nProjected swell days:\n{lines}\n\n"
                 f"Model: Open-Meteo marine (WaveWatch-class). Expect refinement as it gets closer;\n"
                 f"buoy confirmation alerts will follow when energy actually shows at Frying Pan Shoals.\n")
