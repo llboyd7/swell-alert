@@ -41,7 +41,14 @@ FIRE_MIN_HEIGHT_FT = 3.0
 # A day earns an OUTLOOK if EITHER condition holds (Sensitive preset):
 FCST_MIN_TOTAL_FT = 2.5          # total surf height is fun-size on its own, OR
 FCST_SWELL_MIN_HEIGHT_FT = 1.5   # a cleaner swell at least this tall...
-FCST_SWELL_MIN_PERIOD = 7.0      # ...at this period or longer
+FCST_SWELL_MIN_PERIOD = 6.5      # ...at this period or longer
+# ^ period floor lowered 7.0 -> 6.5 after the 2026-09-01 session: an *ideal*
+#   longboard morning (ESE ~2ft @ 7s, light N offshore) forecast at 6.95s was
+#   missed by the old 7.0s floor. See sessions.csv.
+
+# Wind + swell angle are gates, not garnish. A day with surfable size still
+# does NOT earn an OUTLOOK if the swell is off-angle or it's blown out onshore.
+FCST_MAX_ONSHORE_KT = 12.0       # 8am onshore wind stronger than this = junk, skip
 
 # Wind at Wrightsville (beach faces ~ESE). Offshore/clean wind blows off the
 # land — the WSW→W→NW→N→NE arc. Onshore (junky) blows in off the ocean —
@@ -207,12 +214,32 @@ def fetch_forecast():
 
 
 def forecast_day_qualifies(d) -> bool:
-    """Sensitive preset: fun-size total surf OR a decent mid-period swell."""
+    """Worth an OUTLOOK. Size gets you in the door; wind + swell angle decide.
+    A big day that's off-angle or blown out onshore does NOT earn an alert."""
     total = d.get("max_total_ft") or 0
     swell = d.get("max_swell_ft") or 0
     period = d.get("period_at_max") or 0
-    return total >= FCST_MIN_TOTAL_FT or (
+    size_ok = total >= FCST_MIN_TOTAL_FT or (
         swell >= FCST_SWELL_MIN_HEIGHT_FT and period >= FCST_SWELL_MIN_PERIOD)
+    if not size_ok:
+        return False
+    # Swell angle must be in Wrightsville's working window (E–S). Off-angle = skip.
+    if not in_window(d.get("dir_at_max_deg"), IDEAL_SWELL_MIN_DEG, IDEAL_SWELL_MAX_DEG):
+        return False
+    # Kill it only for a real onshore blow at dawn (light onshore may still glass off).
+    wkt, wdeg = d.get("wind_8am_kt"), d.get("wind_8am_deg")
+    if wkt is not None and in_window(wdeg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG) \
+            and wkt > FCST_MAX_ONSHORE_KT:
+        return False
+    return True
+
+
+def forecast_day_quality(d) -> str:
+    """PRIME = clean offshore dawn wind on top of a qualifying day; else GOOD."""
+    wkt, wdeg = d.get("wind_8am_kt"), d.get("wind_8am_deg")
+    offshore = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG) \
+        and (wkt or 99) <= MAX_WIND_KT
+    return "PRIME" if offshore else "GOOD"
 
 
 def find_swell_days(forecast):
@@ -222,7 +249,7 @@ def find_swell_days(forecast):
 
 def describe_day(d) -> str:
     swell_dir = deg_to_compass(d.get("dir_at_max_deg"))
-    quality = "✅ ideal window" if in_window(d.get("dir_at_max_deg"), IDEAL_SWELL_MIN_DEG, IDEAL_SWELL_MAX_DEG) else "⚠️ off-angle"
+    angle_txt = "✅ ideal window" if in_window(d.get("dir_at_max_deg"), IDEAL_SWELL_MIN_DEG, IDEAL_SWELL_MAX_DEG) else "⚠️ off-angle"
     wind = ""
     if d.get("wind_8am_kt") is not None:
         wdir = deg_to_compass(d.get("wind_8am_deg"))
@@ -230,8 +257,9 @@ def describe_day(d) -> str:
         wind = f" | 8am wind {d['wind_8am_kt']:.0f}kt {wdir} ({tag})"
     period = d.get("period_at_max")
     pstr = f"{period:.0f}s" if period else "short-period"
-    return (f"{d['date']}: {d.get('max_total_ft', 0)}ft surf "
-            f"(swell {d['max_swell_ft']}ft @ {pstr} from {swell_dir}) ({quality}){wind}")
+    prime = "🏆 PRIME — " if forecast_day_quality(d) == "PRIME" else ""
+    return (f"{d['date']}: {prime}{d.get('max_total_ft', 0)}ft surf "
+            f"(swell {d['max_swell_ft']}ft @ {pstr} from {swell_dir}) ({angle_txt}){wind}")
 
 
 # ─────────────────── STATE / LOG / EMAIL ───────────────────────

@@ -117,7 +117,7 @@
   <div class="fc" id="fc"></div>
 
   <footer>
-    <div class="legend">⭐ = day worth a surf (meets the OUTLOOK threshold) · green direction = E–S ideal window · 🙌 = offshore dawn wind.</div>
+    <div class="legend">🏆 = prime (clean offshore dawn + ideal angle) · ⭐ = worth a surf (size + angle + not blown out) · green direction = E–S window · 🙌 = offshore dawn wind.</div>
     <div>Sources: NDBC buoys 41013 / 41110 + JMPN7, and the Open-Meteo marine model. This page is the same data the email alerts use.</div>
     <div id="thr"></div>
   </footer>
@@ -192,7 +192,7 @@ function render(d){
     el.className = "day" + (day.is_swell_day?" hit":"");
     const hasWind = day.wind_8am_kt!==null && day.wind_8am_kt!==undefined;
     el.innerHTML = `
-      ${day.is_swell_day?'<div class="star">⭐</div>':''}
+      ${day.is_swell_day?('<div class="star">'+(day.quality==='PRIME'?'🏆':'⭐')+'</div>'):''}
       <div class="dow">${DOW[dt.getUTCDay()]}</div>
       <div class="dm">${dt.getUTCMonth()+1}/${dt.getUTCDate()}</div>
       <div class="ht">${f1(day.total_ft)}ft</div>
