@@ -50,10 +50,10 @@ FCST_SWELL_MIN_PERIOD = 6.5      # ...at this period or longer
 # does NOT earn an OUTLOOK if the swell is off-angle or it's blown out onshore.
 FCST_MAX_ONSHORE_KT = 12.0       # 8am onshore wind stronger than this = junk, skip
 
-# Quality grade for a qualifying day. Juice = size x period (calibrated from
-# real sessions: 2ft@7s rated 7/10 "longboard fun", 3ft@11s rated 9/10 "Grade A").
-GRADE_A_PERIOD = 10.0            # period >= this ...
-GRADE_A_TOTAL_FT = 3.0          # ... or total surf >= this = Grade A juice
+# Quality grade for a qualifying day. PERIOD IS KING (calibrated from real
+# sessions: 2ft@7s rated 7/10 "longboard fun", 3ft@11s rated 9/10 "Grade A";
+# short-period height is wind slop, not surf).
+GRADE_A_PERIOD = 10.0            # period >= this (real groundswell) = Grade A juice
 GRADE_LABELS = {                 # grade -> (emoji, phrase)
     "A": ("🏆", "Grade A — juicy, all boards"),
     "B": ("⭐", "Grade B — clean & fun, longboard"),
@@ -229,9 +229,10 @@ def forecast_day_qualifies(d) -> bool:
     total = d.get("max_total_ft") or 0
     swell = d.get("max_swell_ft") or 0
     period = d.get("period_at_max") or 0
-    size_ok = total >= FCST_MIN_TOTAL_FT or (
-        swell >= FCST_SWELL_MIN_HEIGHT_FT and period >= FCST_SWELL_MIN_PERIOD)
-    if not size_ok:
+    # Period is king: short-period wind slop never qualifies, whatever the height.
+    if period < FCST_SWELL_MIN_PERIOD:
+        return False
+    if swell < FCST_SWELL_MIN_HEIGHT_FT and total < FCST_MIN_TOTAL_FT:
         return False
     # Swell angle must be in Wrightsville's working window (E–S). Off-angle = skip.
     if not in_window(d.get("dir_at_max_deg"), IDEAL_SWELL_MIN_DEG, IDEAL_SWELL_MAX_DEG):
@@ -253,8 +254,7 @@ def forecast_day_quality(d) -> str:
     if not offshore:
         return "C"
     period = d.get("period_at_max") or 0
-    total = d.get("max_total_ft") or 0
-    return "A" if (period >= GRADE_A_PERIOD or total >= GRADE_A_TOTAL_FT) else "B"
+    return "A" if period >= GRADE_A_PERIOD else "B"
 
 
 def find_swell_days(forecast):
