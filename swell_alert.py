@@ -85,6 +85,10 @@ MARINE_URL = (
     f"?latitude={LAT}&longitude={LON}"
     "&hourly=swell_wave_height,swell_wave_period,swell_wave_direction,wave_height"
     "&timezone=America%2FNew_York&forecast_days=7"
+    # NOAA GFS-Wave (US operational). The default best_match uses a coarse global
+    # model (gwam) that flattens period to ~5s here and chronically under-forecast
+    # this spot (missed 9/08's 15s day entirely). GFS-Wave resolves real period.
+    "&models=ncep_gfswave025"
 )
 WIND_FCST_URL = (
     "https://api.open-meteo.com/v1/forecast"
