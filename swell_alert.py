@@ -50,14 +50,22 @@ FCST_SWELL_MIN_PERIOD = 6.5      # ...at this period or longer
 # does NOT earn an OUTLOOK if the swell is off-angle or it's blown out onshore.
 FCST_MAX_ONSHORE_KT = 12.0       # 8am onshore wind stronger than this = junk, skip
 
-# Quality grade for a qualifying day. PERIOD IS KING (calibrated from real
-# sessions: 2ft@7s rated 7/10 "longboard fun", 3ft@11s rated 9/10 "Grade A";
-# short-period height is wind slop, not surf).
+# Letter grade A/B/C/D, fit to real logged sessions (sessions.csv). Signals:
+# period (king), size, cleanliness (swell/total), dawn wind, and swell angle.
 GRADE_A_PERIOD = 10.0            # period >= this (real groundswell) = Grade A juice
+GRADE_A_HEIGHT_FT = 3.0         # ...or swell >= this = Grade A on size alone
+GRADE_B_HEIGHT_FT = 2.0         # swell >= this (clean, in period) = B base; below = C
+FCST_CLEAN_RATIO_MIN = 0.55     # swell/total below this = wind chop on top = auto D
+# Core swell window: the beach faces ~ESE, so ESE–SE is the organized sweet spot.
+# Inside the working window (E–S) but outside this core softens one grade —
+# straight-E 9/18 rated C vs ESE 9/01 rated B on otherwise-equal conditions.
+CORE_SWELL_MIN_DEG = 100        # ESE
+CORE_SWELL_MAX_DEG = 160        # SSE
 GRADE_LABELS = {                 # grade -> (emoji, phrase)
     "A": ("🏆", "Grade A — juicy, all boards"),
-    "B": ("⭐", "Grade B — clean & fun, longboard"),
-    "C": ("〰️", "Grade C — rideable, wind's off"),
+    "B": ("⭐", "Grade B — clean & fun"),
+    "C": ("〰️", "Grade C — small but rideable"),
+    "D": ("🚫", "Grade D — junky, skip it"),
 }
 
 # Wind at Wrightsville (beach faces ~ESE). Offshore/clean wind blows off the
@@ -227,42 +235,60 @@ def fetch_forecast():
     return sorted(days.values(), key=lambda d: d["date"])
 
 
-def forecast_day_qualifies(d) -> bool:
-    """Worth an OUTLOOK. Size gets you in the door; wind + swell angle decide.
-    A big day that's off-angle or blown out onshore does NOT earn an alert."""
+def forecast_day_grade(d):
+    """Letter grade A/B/C/D for a day, or None to skip (nothing there, off-angle,
+    short-period slop, or blown out). Fit to logged sessions: a base grade from
+    period/size, then softened one notch each for chop, off-core angle, or
+    non-offshore wind."""
     total = d.get("max_total_ft") or 0
     swell = d.get("max_swell_ft") or 0
     period = d.get("period_at_max") or 0
-    # Period is king: short-period wind slop never qualifies, whatever the height.
-    if period < FCST_SWELL_MIN_PERIOD:
-        return False
-    if swell < FCST_SWELL_MIN_HEIGHT_FT and total < FCST_MIN_TOTAL_FT:
-        return False
-    # Swell angle must be in Wrightsville's working window (E–S). Off-angle = skip.
-    if not in_window(d.get("dir_at_max_deg"), IDEAL_SWELL_MIN_DEG, IDEAL_SWELL_MAX_DEG):
-        return False
-    # Kill it only for a real onshore blow at dawn (light onshore may still glass off).
+    dir_deg = d.get("dir_at_max_deg")
     wkt, wdeg = d.get("wind_8am_kt"), d.get("wind_8am_deg")
+
+    # ---- hard skips: not even a grade ----
+    if not in_window(dir_deg, IDEAL_SWELL_MIN_DEG, IDEAL_SWELL_MAX_DEG):
+        return None                                   # off-angle
+    if period < FCST_SWELL_MIN_PERIOD:
+        return None                                   # short-period wind slop
     if wkt is not None and in_window(wdeg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG) \
             and wkt > FCST_MAX_ONSHORE_KT:
-        return False
-    return True
+        return None                                   # blown out onshore
+    if swell < FCST_SWELL_MIN_HEIGHT_FT and total < FCST_MIN_TOTAL_FT:
+        return None                                   # nothing there
 
+    # ---- chop-dominated or tiny = automatic D ----
+    ratio = (swell / total) if total else 1.0
+    if ratio < FCST_CLEAN_RATIO_MIN or swell < FCST_SWELL_MIN_HEIGHT_FT:
+        return "D"
 
-def forecast_day_quality(d) -> str:
-    """Letter grade for a qualifying day: A = juicy/all-boards, B = clean/
-    longboard fun, C = rideable but the wind's off."""
-    wkt, wdeg = d.get("wind_8am_kt"), d.get("wind_8am_deg")
+    # ---- base grade from juice (period / size) ----
+    if period >= GRADE_A_PERIOD or swell >= GRADE_A_HEIGHT_FT:
+        base = "A"
+    elif swell >= GRADE_B_HEIGHT_FT:
+        base = "B"
+    else:
+        base = "C"
+
+    # ---- soften one notch per factor working against you ----
+    softer = {"A": "B", "B": "C", "C": "D", "D": "D"}
     offshore = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG) \
         and (wkt or 99) <= MAX_WIND_KT
     if not offshore:
-        return "C"
-    period = d.get("period_at_max") or 0
-    return "A" if period >= GRADE_A_PERIOD else "B"
+        base = softer[base]                           # cross / light onshore
+    if not in_window(dir_deg, CORE_SWELL_MIN_DEG, CORE_SWELL_MAX_DEG):
+        base = softer[base]                           # off-core swell angle (edge of window)
+    return base
+
+
+def forecast_day_qualifies(d) -> bool:
+    """Worth an OUTLOOK email — only genuinely good days (A or B). C/D still show
+    on the dashboard, but don't fire a notification."""
+    return forecast_day_grade(d) in ("A", "B")
 
 
 def find_swell_days(forecast):
-    """Days worth an OUTLOOK under the current thresholds."""
+    """Days worth an OUTLOOK email (A/B) under the current thresholds."""
     return [d for d in forecast if forecast_day_qualifies(d)]
 
 
@@ -276,7 +302,7 @@ def describe_day(d) -> str:
         wind = f" | 8am wind {d['wind_8am_kt']:.0f}kt {wdir} ({tag})"
     period = d.get("period_at_max")
     pstr = f"{period:.0f}s" if period else "short-period"
-    emoji, gtxt = GRADE_LABELS[forecast_day_quality(d)]
+    emoji, gtxt = GRADE_LABELS[forecast_day_grade(d)]
     return (f"{d['date']}: {emoji} {gtxt} — {d.get('max_total_ft', 0)}ft surf "
             f"(swell {d['max_swell_ft']}ft @ {pstr} from {swell_dir}) ({angle_txt}){wind}")
 
@@ -372,7 +398,7 @@ def check_forecast(state) -> dict:
     lines = "\n".join("  " + describe_day(d) for d in swell_days)
 
     if new_dates:
-        _g0 = forecast_day_quality(swell_days[0])
+        _g0 = forecast_day_grade(swell_days[0])
         _e0, _ = GRADE_LABELS[_g0]
         subject = f"🔭 OUTLOOK {_e0} Grade {_g0}: {swell_days[0]['max_total_ft']}ft surf projected {dates[0]} ({days_out} days out)"
         body = (f"7-day model projection — Wrightsville Beach\n\nProjected swell days:\n{lines}\n\n"

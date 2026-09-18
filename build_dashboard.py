@@ -60,8 +60,9 @@ def main():
                 "wind_8am_offshore": s.in_window(d.get("wind_8am_deg"),
                                                  s.OFFSHORE_WIND_MIN_DEG, s.OFFSHORE_WIND_MAX_DEG)
                                      and (d.get("wind_8am_kt") or 99) <= s.MAX_WIND_KT,
-                "is_swell_day": s.forecast_day_qualifies(d),
-                "quality": s.forecast_day_quality(d) if s.forecast_day_qualifies(d) else None,
+                "grade": s.forecast_day_grade(d),           # A/B/C/D or None
+                "is_swell_day": s.forecast_day_grade(d) is not None,
+                "worth_alert": s.forecast_day_qualifies(d),  # A/B only
             })
     except Exception as e:
         print(f"Forecast fetch failed (dashboard will show buoy only): {e}")
