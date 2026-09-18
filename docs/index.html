@@ -125,10 +125,40 @@
 
 <script>
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const f1 = v => (v===null||v===undefined) ? "—" : v;
+const f1 = v => (v===null||v===undefined||v==="") ? "—" : v;
+const num = v => (v===null||v===undefined||v==="") ? null : parseFloat(v);
+
+// ── grade logic, ported 1:1 from swell_alert.py (keep in sync) ──
+const LAT=34.20, LON=-77.79;
+const CFG = {
+  IDEAL_MIN:90, IDEAL_MAX:180, CORE_MIN:100, CORE_MAX:160,
+  OFF_MIN:245, OFF_MAX:45, ON_MIN:60, ON_MAX:190, MAXWIND:15,
+  PMIN:6.5, TOTMIN:2.5, SWMIN:1.5, MAXONSHORE:12,
+  A_PERIOD:10, A_HT:3.0, B_HT:2.0, CLEAN:0.55,
+  HEADS_UP:12, FIRE:14, FIRE_HT:3
+};
+const COMPASS=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+const compass = d => (d===null||d===undefined) ? "?" : COMPASS[Math.floor((((+d)+11.25)%360)/22.5)];
+function inWin(deg,lo,hi){ if(deg===null||deg===undefined) return false; deg=+deg;
+  return lo<=hi ? (deg>=lo&&deg<=hi) : (deg>=lo||deg<=hi); }
+
+function grade(swell, period, total, dirDeg, wDeg, wKt){
+  swell=swell||0; period=period||0; total=total||0;
+  if(!inWin(dirDeg, CFG.IDEAL_MIN, CFG.IDEAL_MAX)) return null;      // off-angle
+  if(period < CFG.PMIN) return null;                                 // short-period slop
+  if(wKt!=null && inWin(wDeg, CFG.ON_MIN, CFG.ON_MAX) && wKt>CFG.MAXONSHORE) return null; // blown out
+  if(swell < CFG.SWMIN && total < CFG.TOTMIN) return null;           // nothing
+  const ratio = total ? swell/total : 1;
+  if(ratio < CFG.CLEAN || swell < CFG.SWMIN) return "D";             // chop / tiny
+  let base = (period>=CFG.A_PERIOD || swell>=CFG.A_HT) ? "A" : (swell>=CFG.B_HT ? "B" : "C");
+  const softer = {A:"B", B:"C", C:"D", D:"D"};
+  const offshore = inWin(wDeg, CFG.OFF_MIN, CFG.OFF_MAX) && ((wKt||99) <= CFG.MAXWIND);
+  if(!offshore) base = softer[base];                                 // cross / light onshore
+  if(!inWin(dirDeg, CFG.CORE_MIN, CFG.CORE_MAX)) base = softer[base]; // off-core angle
+  return base;
+}
 
 function agoText(iso){
-  // iso like "2026-08-12 20:28 UTC"
   const t = Date.parse(iso.replace(" UTC","Z").replace(" ","T"));
   if(isNaN(t)) return "";
   const mins = Math.round((Date.now()-t)/60000);
@@ -136,6 +166,49 @@ function agoText(iso){
   if(mins < 60) return mins+" min ago";
   const h = Math.floor(mins/60);
   return h+"h "+(mins%60)+"m ago";
+}
+
+// ── live fetches (client-side; Open-Meteo allows CORS, NDBC does not) ──
+async function fetchForecast(){
+  const marineU = "https://marine-api.open-meteo.com/v1/marine?latitude="+LAT+"&longitude="+LON+
+    "&hourly=swell_wave_height,swell_wave_period,swell_wave_direction,wave_height"+
+    "&timezone=America%2FNew_York&forecast_days=7&length_unit=imperial&models=ncep_gfswave025";
+  const windU = "https://api.open-meteo.com/v1/forecast?latitude="+LAT+"&longitude="+LON+
+    "&hourly=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn&timezone=America%2FNew_York&forecast_days=7";
+  const [m,w] = await Promise.all([fetch(marineU).then(r=>r.json()), fetch(windU).then(r=>r.json())]);
+  const H=m.hourly, days={};
+  for(let i=0;i<H.time.length;i++){
+    const date=H.time[i].slice(0,10);
+    const d = days[date] || (days[date]={date, total:0, swell:0, period:null, dir:null, w8kt:null, w8deg:null});
+    const tot=H.wave_height[i]; if(tot!=null && tot>d.total) d.total=tot;
+    const sh=H.swell_wave_height[i];
+    if(sh!=null && sh>d.swell){ d.swell=sh; d.period=H.swell_wave_period[i]; d.dir=H.swell_wave_direction[i]; }
+  }
+  const W=w.hourly;
+  for(let i=0;i<W.time.length;i++){
+    if(W.time[i].slice(11,13)==="08"){ const date=W.time[i].slice(0,10);
+      if(days[date]){ days[date].w8kt=W.wind_speed_10m[i]; days[date].w8deg=W.wind_direction_10m[i]; } }
+  }
+  return Object.values(days).sort((a,b)=> a.date<b.date?-1:1).map(d=>{
+    const g = grade(d.swell, d.period, d.total, d.dir, d.w8deg, d.w8kt);
+    return {
+      date:d.date, total_ft: d.total? Math.round(d.total*10)/10 : 0,
+      period_s: d.period!=null? Math.round(d.period) : null,
+      dir_compass: compass(d.dir), ideal_dir: inWin(d.dir, CFG.IDEAL_MIN, CFG.IDEAL_MAX),
+      wind_8am_kt: d.w8kt!=null? Math.round(d.w8kt) : null, wind_8am_compass: compass(d.w8deg),
+      wind_8am_offshore: inWin(d.w8deg, CFG.OFF_MIN, CFG.OFF_MAX) && ((d.w8kt||99)<=CFG.MAXWIND),
+      grade: g, is_swell_day: (g==="A"||g==="B")
+    };
+  });
+}
+
+async function fetchCurrent(){
+  // observations.csv lives at repo root (not under /docs); raw.githubusercontent sends CORS.
+  const url = "https://raw.githubusercontent.com/llboyd7/swell-alert/master/observations.csv?_="+Date.now();
+  const txt = await fetch(url).then(r=>{ if(!r.ok) throw new Error(r.status); return r.text(); });
+  const lines = txt.trim().split(/\r?\n/); const hdr = lines[0].split(",");
+  const last = lines[lines.length-1].split(","); const r={}; hdr.forEach((h,i)=> r[h]=last[i]);
+  return r;
 }
 
 function render(d){
@@ -202,19 +275,36 @@ function render(d){
     fc.appendChild(el);
   });
 
-  const t = d.thresholds;
   document.getElementById("thr").textContent =
-    `Thresholds — LIVE buoy: ${t.heads_up_period}s (🔥 ${t.fire_period}s at ${t.fire_min_height_ft}ft+) · OUTLOOK: ${t.fcst_min_total_ft}ft surf, or ${t.fcst_swell_min_height_ft}ft swell at ${t.fcst_swell_min_period}s+.`;
+    `Grades A→D fit to logged sessions: period ≥ ${CFG.PMIN}s to count, then size, `+
+    `cleanliness (swell÷total), swell angle (ESE–SE core) and dawn wind. `+
+    `LIVE buoy tiers: ${CFG.HEADS_UP}s (🔥 ${CFG.FIRE}s at ${CFG.FIRE_HT}ft+).`;
 }
 
-function load(){
-  fetch("./data.json?_="+Date.now())
-    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
-    .then(d=>{ document.getElementById("err").style.display="none"; render(d); })
-    .catch(()=>{ document.getElementById("err").style.display="block"; });
+async function load(){
+  try{
+    const forecast = await fetchForecast();                 // required
+    let r = {};
+    try{ r = await fetchCurrent(); }catch(e){ r = {}; }      // best-effort
+    const wdeg = num(r.wind_dir_deg), wkt = num(r.wind_kt);
+    const d = {
+      updated_utc: r.utc ? (r.utc + " UTC") : "just now",
+      tier: r.tier || null,
+      wind_ideal: inWin(wdeg, CFG.OFF_MIN, CFG.OFF_MAX) && ((wkt||99)<=CFG.MAXWIND),
+      offshore: { station:"41013", swell_ht_ft:num(r.swell_ht_ft), swell_period_s:num(r.swell_period_s),
+                  swell_dir:r.swell_dir||"?", seas_ft:num(r.offshore_wvht_ft) },
+      nearshore:{ station:"41110", wvht_ft:num(r.nearshore_wvht_ft), dpd_s:num(r.nearshore_dpd_s) },
+      wind:     { station:"JMPN7", kt:wkt, dir_deg:wdeg, dir_compass:compass(wdeg) },
+      forecast
+    };
+    document.getElementById("err").style.display="none";
+    render(d);
+  }catch(e){
+    document.getElementById("err").style.display="block";
+  }
 }
 load();
-setInterval(load, 5*60*1000);   // re-check every 5 min in case the hourly job refreshed
+setInterval(load, 10*60*1000);   // forecast is live; refresh every 10 min
 </script>
 </body>
 </html>
