@@ -1,6 +1,7 @@
 {
-  "projected_dates": [],
-  "incoming_sent_for": "2026-09-17",
-  "live_tier": "HEADS_UP",
-  "live_time": "2026-09-19T20:40:22.885120+00:00"
+  "projected_dates": [
+    "2026-09-24",
+    "2026-09-25"
+  ],
+  "incoming_sent_for": "2026-09-17"
 }
