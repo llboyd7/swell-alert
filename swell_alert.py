@@ -39,6 +39,8 @@ WIND_STATION = "JMPN7"    # Johnnie Mercer's Pier
 LIVE_MIN_PERIOD = 9.0       # organized/groundswell period floor to bother
 LIVE_MIN_FACE_FT = 2.5      # estimated beach face (waist+) to send a GO
 LIVE_FIRE_FACE_FT = 5.0     # head-high+ face = 🔥 emphasis (else 🏄)
+LIVE_MAX_WIND_KT = 18.0     # above this, ANY direction, it's too blown to be clean
+#   ^ even offshore: 20kt makes it bumpy/unruly (the "did you factor wind?" catch)
 
 # Forecast alert thresholds — "worth a heads-up" for a beach break.
 # A day earns an OUTLOOK if EITHER condition holds (Sensitive preset):
@@ -471,11 +473,13 @@ def check_buoys(state) -> dict:
           f"41110: {nearshore.get('wvht_ft')}ft DPD {nearshore.get('dpd_s')}s | "
           f"wind {wind.get('wind_kt')}kt {deg_to_compass(wind.get('wind_dir_deg'))}")
 
-    # GO = organized period + rideable estimated face, and not blown out onshore.
+    # GO = organized period + rideable face, not blown out (onshore OR too strong).
+    wkt = wind.get("wind_kt")
     strong_onshore = in_window(wind.get("wind_dir_deg"), ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG) \
-        and (wind.get("wind_kt") or 0) > FCST_MAX_ONSHORE_KT
+        and (wkt or 0) > FCST_MAX_ONSHORE_KT
+    too_windy = wkt is not None and wkt > LIVE_MAX_WIND_KT   # even offshore, 20kt = unruly
     is_go = (period is not None and period >= LIVE_MIN_PERIOD
-             and face >= LIVE_MIN_FACE_FT and not strong_onshore)
+             and face >= LIVE_MIN_FACE_FT and not strong_onshore and not too_windy)
     tier = "GO" if is_go else None
 
     log_observation(offshore, nearshore, wind, tier)
