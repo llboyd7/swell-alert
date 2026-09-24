@@ -117,7 +117,7 @@
   <div class="fc" id="fc"></div>
 
   <footer>
-    <div class="legend">🏆 A (juicy) · ⭐ B (clean &amp; fun) · 〰️ C (small but rideable) · 🚫 D (junky) · only A/B email you · green direction = E–S window · 🙌 = offshore dawn wind.</div>
+    <div class="legend">🏆 A (juicy) · ⭐ B (clean &amp; fun) · 〰️ C (small but rideable) · 🚫 D (junky) · this page is the outlook — email fires only when it's ON in the water · green direction = E–S window · 🙌 = offshore dawn wind.</div>
     <div>Sources: NDBC buoys 41013 / 41110 + JMPN7, and the Open-Meteo marine model. This page is the same data the email alerts use.</div>
     <div id="thr"></div>
   </footer>
@@ -135,7 +135,7 @@ const CFG = {
   OFF_MIN:245, OFF_MAX:45, ON_MIN:60, ON_MAX:190, MAXWIND:15,
   PMIN:6.5, TOTMIN:2.5, SWMIN:1.5, MAXONSHORE:12,
   A_PERIOD:10, A_HT:3.0, B_HT:2.0, CLEAN:0.55,
-  HEADS_UP:12, FIRE:14, FIRE_HT:3
+  LIVE_P:9, LIVE_FACE:2.5
 };
 const COMPASS=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 const compass = d => (d===null||d===undefined) ? "?" : COMPASS[Math.floor((((+d)+11.25)%360)/22.5)];
@@ -278,7 +278,8 @@ function render(d){
   document.getElementById("thr").textContent =
     `Grades A→D fit to logged sessions: period ≥ ${CFG.PMIN}s to count, then size, `+
     `cleanliness (swell÷total), swell angle (ESE–SE core) and dawn wind. `+
-    `LIVE buoy tiers: ${CFG.HEADS_UP}s (🔥 ${CFG.FIRE}s at ${CFG.FIRE_HT}ft+).`;
+    `This page is the outlook; the one email ("🏄 IT'S ON") fires only when the buoy shows `+
+    `≥${CFG.LIVE_P}s energy breaking ~waist-high or bigger.`;
 }
 
 async function load(){

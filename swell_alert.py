@@ -32,10 +32,13 @@ OFFSHORE_BUOY = "41013"   # Frying Pan Shoals
 NEARSHORE_BUOY = "41110"  # Masonboro Inlet
 WIND_STATION = "JMPN7"    # Johnnie Mercer's Pier
 
-# Live (buoy) tiers
-HEADS_UP_PERIOD = 12.0
-FIRE_PERIOD = 14.0
-FIRE_MIN_HEIGHT_FT = 3.0
+# Live "GO" alert — the ONE email type. Fires when the buoy shows genuinely
+# rideable energy, judged on estimated BEACH-FACE height (long-period swell
+# shoals up ~2x offshore), not the raw offshore number. A 1.6ft @ 14s pulse
+# breaks chest-high (buds scored Masonboro 9/23 off exactly that).
+LIVE_MIN_PERIOD = 9.0       # organized/groundswell period floor to bother
+LIVE_MIN_FACE_FT = 2.5      # estimated beach face (waist+) to send a GO
+LIVE_FIRE_FACE_FT = 5.0     # head-high+ face = 🔥 emphasis (else 🏄)
 
 # Forecast alert thresholds — "worth a heads-up" for a beach break.
 # A day earns an OUTLOOK if EITHER condition holds (Sensitive preset):
@@ -418,24 +421,62 @@ def check_forecast(state) -> dict:
     return state
 
 
+def shoal_factor(period):
+    """Long-period swell stands up more as it shoals onto the sandbars.
+    Rough surfer heuristic mapping deep-water period -> face multiplier."""
+    if period is None:
+        return 1.0
+    if period < 8:
+        return 1.0
+    if period < 11:
+        return 1.4
+    if period < 14:
+        return 1.9
+    return 2.2
+
+
+def face_height_ft(offshore_swell_ft, period):
+    if offshore_swell_ft is None:
+        return 0.0
+    return offshore_swell_ft * shoal_factor(period)
+
+
+def size_word(face):
+    if face < 1.5:
+        return "ankle-knee"
+    if face < 2.5:
+        return "knee-thigh"
+    if face < 3.5:
+        return "waist-to-chest"
+    if face < 4.5:
+        return "chest-to-shoulder"
+    if face < 5.5:
+        return "head-high"
+    if face < 7.5:
+        return "overhead"
+    return "well overhead"
+
+
 def check_buoys(state) -> dict:
-    """LIVE tier from NDBC buoys, with direction in the alert."""
+    """The ONE email: a LIVE 'GO' alert when the buoy shows genuinely rideable
+    energy, described in beach-face terms (not the small offshore number)."""
     offshore = latest_spec(OFFSHORE_BUOY)
     nearshore = latest_met(NEARSHORE_BUOY)
     wind = latest_met(WIND_STATION)
 
     period = offshore.get("swell_period_s")
     height = offshore.get("swell_ht_ft")
-    print(f"41013: {height}ft @ {period}s {offshore.get('swell_dir')} | "
+    face = round(face_height_ft(height, period), 1) if height is not None else 0.0
+    print(f"41013: {height}ft @ {period}s {offshore.get('swell_dir')} (~{face}ft face) | "
           f"41110: {nearshore.get('wvht_ft')}ft DPD {nearshore.get('dpd_s')}s | "
           f"wind {wind.get('wind_kt')}kt {deg_to_compass(wind.get('wind_dir_deg'))}")
 
-    tier = None
-    if period is not None:
-        if period >= FIRE_PERIOD and (height or 0) >= FIRE_MIN_HEIGHT_FT:
-            tier = "FIRE"
-        elif period >= HEADS_UP_PERIOD:
-            tier = "HEADS_UP"
+    # GO = organized period + rideable estimated face, and not blown out onshore.
+    strong_onshore = in_window(wind.get("wind_dir_deg"), ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG) \
+        and (wind.get("wind_kt") or 0) > FCST_MAX_ONSHORE_KT
+    is_go = (period is not None and period >= LIVE_MIN_PERIOD
+             and face >= LIVE_MIN_FACE_FT and not strong_onshore)
+    tier = "GO" if is_go else None
 
     log_observation(offshore, nearshore, wind, tier)
 
@@ -444,39 +485,37 @@ def check_buoys(state) -> dict:
         state.pop("live_time", None)
         return state
 
-    escalated = tier == "FIRE" and state.get("live_tier") != "FIRE"
-    if not escalated and state.get("live_tier") == tier and hours_since(state.get("live_time", "")) < COOLDOWN_HOURS:
+    # One swell shouldn't email repeatedly.
+    if state.get("live_tier") == "GO" and hours_since(state.get("live_time", "")) < COOLDOWN_HOURS:
         print("Live alert cooldown active.")
         return state
 
+    words = size_word(face)
     wind_txt = wind_label(wind.get("wind_dir_deg"), wind.get("wind_kt"))
     swell_dir = offshore.get("swell_dir", "?")
+    flame = "🔥" if face >= LIVE_FIRE_FACE_FT else "🏄"
+    subject = f"{flame} IT'S ON: ~{words} ({period:.0f}s {swell_dir}) — {wind_txt}"
 
-    if tier == "FIRE":
-        subject = f"🔥 IT'S ON: {height}ft @ {period}s {swell_dir} at Frying Pan — {wind_txt}"
-    else:
-        subject = f"🌊 Long-period energy: {period}s {swell_dir} showing at Frying Pan Shoals"
-
-    body = (f"LIVE buoy confirmation — Wrightsville Beach\n\n"
-            f"OFFSHORE (Frying Pan Shoals 41013):\n"
-            f"  Swell: {height} ft @ {period}s from {swell_dir}\n"
-            f"  Total seas: {offshore.get('wvht_ft')} ft   ({offshore.get('time_utc')})\n\n"
-            f"NEARSHORE (Masonboro Inlet 41110):\n"
-            f"  {nearshore.get('wvht_ft')} ft, dominant period {nearshore.get('dpd_s')}s\n\n"
-            f"WIND (Johnnie Mercer's Pier):\n"
-            f"  {wind.get('wind_kt')} kt from {deg_to_compass(wind.get('wind_dir_deg'))} "
-            f"({wind.get('wind_dir_deg')}°) — {wind_txt}\n\n"
-            f"Live: https://www.ndbc.noaa.gov/station_page.php?station=41013\n"
+    body = (f"Buoy says GO — Wrightsville Beach\n\n"
+            f"Estimated surf: ~{words}  (about {face:.0f}ft faces)\n"
+            f"  {period:.0f}s {swell_dir} groundswell — long-period stands up bigger on the sandbars.\n"
+            f"  Wind: {wind.get('wind_kt')} kt {deg_to_compass(wind.get('wind_dir_deg'))} — {wind_txt}\n\n"
+            f"Raw buoy readings:\n"
+            f"  Offshore (Frying Pan 41013): {height} ft @ {period}s from {swell_dir}  ({offshore.get('time_utc')})\n"
+            f"  Nearshore (Masonboro 41110): {nearshore.get('wvht_ft')} ft, DPD {nearshore.get('dpd_s')}s\n\n"
+            f"Live dashboard (outlook + current): https://llboyd7.github.io/swell-alert/\n"
             f"{feedback_link()}")
     send_email(subject, body)
-    state["live_tier"] = tier
+    state["live_tier"] = "GO"
     state["live_time"] = datetime.now(timezone.utc).isoformat()
     return state
 
 
 def main():
     state = load_state()
-    state = check_forecast(state)
+    # OUTLOOK/INCOMING forecasts now live on the always-current dashboard, not
+    # email. Email is reserved for the single LIVE "GO" alert so it means one
+    # thing: paddle out now. (check_forecast is kept but no longer emails.)
     state = check_buoys(state)
     save_state(state)
 
