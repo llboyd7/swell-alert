@@ -135,6 +135,7 @@ const CFG = {
   OFF_MIN:245, OFF_MAX:45, ON_MIN:60, ON_MAX:190, MAXWIND:15,
   PMIN:6.5, TOTMIN:2.5, SWMIN:1.5, MAXONSHORE:12,
   A_PERIOD:10, A_HT:3.0, B_HT:2.0, CLEAN:0.55,
+  CLOSE_P:9, CLOSE_HT:3.0,
   LIVE_P:9, LIVE_FACE:2.5
 };
 const COMPASS=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
@@ -150,10 +151,11 @@ function grade(swell, period, total, dirDeg, wDeg, wKt){
   if(swell < CFG.SWMIN && total < CFG.TOTMIN) return null;           // nothing
   const ratio = total ? swell/total : 1;
   if(ratio < CFG.CLEAN || swell < CFG.SWMIN) return "D";             // chop / tiny
+  if(period < CFG.CLOSE_P && swell >= CFG.CLOSE_HT) return "D";      // big + short period = closeouts
   let base = (period>=CFG.A_PERIOD || swell>=CFG.A_HT) ? "A" : (swell>=CFG.B_HT ? "B" : "C");
   const softer = {A:"B", B:"C", C:"D", D:"D"};
-  const offshore = inWin(wDeg, CFG.OFF_MIN, CFG.OFF_MAX) && ((wKt||99) <= CFG.MAXWIND);
-  if(!offshore) base = softer[base];                                 // cross / light onshore
+  const offshoreDir = inWin(wDeg, CFG.OFF_MIN, CFG.OFF_MAX);  // off the land = clean at any strength
+  if(!offshoreDir) base = softer[base];                             // cross / onshore
   if(!inWin(dirDeg, CFG.CORE_MIN, CFG.CORE_MAX)) base = softer[base]; // off-core angle
   return base;
 }

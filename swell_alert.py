@@ -39,8 +39,10 @@ WIND_STATION = "JMPN7"    # Johnnie Mercer's Pier
 LIVE_MIN_PERIOD = 9.0       # organized/groundswell period floor to bother
 LIVE_MIN_FACE_FT = 2.5      # estimated beach face (waist+) to send a GO
 LIVE_FIRE_FACE_FT = 5.0     # head-high+ face = 🔥 emphasis (else 🏄)
-LIVE_MAX_WIND_KT = 18.0     # above this, ANY direction, it's too blown to be clean
-#   ^ even offshore: 20kt makes it bumpy/unruly (the "did you factor wind?" catch)
+LIVE_MAX_WIND_KT = 18.0     # strong CROSS-shore above this = too bumpy (offshore is fine)
+LIVE_GALE_KT = 28.0         # even offshore, above this you can't paddle out
+#   ^ 9/24 was really good at 4ft@11s in 20kt N OFFSHORE — strong offshore grooms the
+#     wave (hollow/clean), it does NOT junk it. Only onshore / strong cross / gale kills it.
 
 # Forecast alert thresholds — "worth a heads-up" for a beach break.
 # A day earns an OUTLOOK if EITHER condition holds (Sensitive preset):
@@ -61,6 +63,10 @@ GRADE_A_PERIOD = 10.0            # period >= this (real groundswell) = Grade A j
 GRADE_A_HEIGHT_FT = 3.0         # ...or swell >= this = Grade A on size alone
 GRADE_B_HEIGHT_FT = 2.0         # swell >= this (clean, in period) = B base; below = C
 FCST_CLEAN_RATIO_MIN = 0.55     # swell/total below this = wind chop on top = auto D
+# Big + short-period = closeouts ("can't find a shoulder"). At short period, MORE
+# size is worse, not better (9/01 2ft@7s = fun B; 9/25 4.3ft@7.7s = closeout dud).
+CLOSEOUT_PERIOD = 9.0           # below this period...
+CLOSEOUT_MIN_HEIGHT_FT = 3.0    # ...swell this big or more closes out -> D
 # Core swell window: the beach faces ~ESE, so ESE–SE is the organized sweet spot.
 # Inside the working window (E–S) but outside this core softens one grade —
 # straight-E 9/18 rated C vs ESE 9/01 rated B on otherwise-equal conditions.
@@ -266,6 +272,8 @@ def forecast_day_grade(d):
     ratio = (swell / total) if total else 1.0
     if ratio < FCST_CLEAN_RATIO_MIN or swell < FCST_SWELL_MIN_HEIGHT_FT:
         return "D"
+    if period < CLOSEOUT_PERIOD and swell >= CLOSEOUT_MIN_HEIGHT_FT:
+        return "D"                                    # big + short period = closeouts
 
     # ---- base grade from juice (period / size) ----
     if period >= GRADE_A_PERIOD or swell >= GRADE_A_HEIGHT_FT:
@@ -277,10 +285,11 @@ def forecast_day_grade(d):
 
     # ---- soften one notch per factor working against you ----
     softer = {"A": "B", "B": "C", "C": "D", "D": "D"}
-    offshore = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG) \
-        and (wkt or 99) <= MAX_WIND_KT
-    if not offshore:
-        base = softer[base]                           # cross / light onshore
+    # Wind coming off the land keeps it clean at ANY strength (strong offshore grooms
+    # it); only cross/onshore softens. Strong onshore already hard-skipped above.
+    offshore_dir = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG)
+    if not offshore_dir:
+        base = softer[base]                           # cross / onshore
     if not in_window(dir_deg, CORE_SWELL_MIN_DEG, CORE_SWELL_MAX_DEG):
         base = softer[base]                           # off-core swell angle (edge of window)
     return base
@@ -473,13 +482,17 @@ def check_buoys(state) -> dict:
           f"41110: {nearshore.get('wvht_ft')}ft DPD {nearshore.get('dpd_s')}s | "
           f"wind {wind.get('wind_kt')}kt {deg_to_compass(wind.get('wind_dir_deg'))}")
 
-    # GO = organized period + rideable face, not blown out (onshore OR too strong).
-    wkt = wind.get("wind_kt")
-    strong_onshore = in_window(wind.get("wind_dir_deg"), ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG) \
-        and (wkt or 0) > FCST_MAX_ONSHORE_KT
-    too_windy = wkt is not None and wkt > LIVE_MAX_WIND_KT   # even offshore, 20kt = unruly
+    # GO = organized period + rideable face + wind not junking it. Strong OFFSHORE
+    # is CLEAN (grooms/hollows the wave) — only onshore, strong cross-shore, or an
+    # offshore gale kills it.
+    wdeg, wk = wind.get("wind_dir_deg"), (wind.get("wind_kt") or 0)
+    offshore_dir = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG)
+    onshore_dir = in_window(wdeg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG)
+    blown = ((onshore_dir and wk > FCST_MAX_ONSHORE_KT)                       # onshore & brisk
+             or (not offshore_dir and not onshore_dir and wk > LIVE_MAX_WIND_KT)  # strong cross-shore
+             or (offshore_dir and wk > LIVE_GALE_KT))                         # offshore gale
     is_go = (period is not None and period >= LIVE_MIN_PERIOD
-             and face >= LIVE_MIN_FACE_FT and not strong_onshore and not too_windy)
+             and face >= LIVE_MIN_FACE_FT and not blown)
     tier = "GO" if is_go else None
 
     log_observation(offshore, nearshore, wind, tier)
