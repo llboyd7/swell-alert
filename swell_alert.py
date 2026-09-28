@@ -92,6 +92,16 @@ MAX_WIND_KT = 15.0
 IDEAL_SWELL_MIN_DEG = 90    # E
 IDEAL_SWELL_MAX_DEG = 180   # S
 
+# Spots share the buoys but differ in WIND exposure. Masonboro has a north jetty
+# that shelters northerly wind (NW→N→ENE), so a strong N blow that junks the open
+# beach can leave Mase clean (9/24 was pumping in 20kt N at Mase). Out Front
+# (August St) is an open beach and feels the wind.
+SPOTS = {
+    "outfront":  {"name": "Out Front (August St)", "jetty_block": None},
+    "masonboro": {"name": "Masonboro",             "jetty_block": (300, 67)},  # NW→N→ENE blocked
+}
+DEFAULT_SPOT = "outfront"
+
 COOLDOWN_HOURS = 12
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -246,11 +256,28 @@ def fetch_forecast():
     return sorted(days.values(), key=lambda d: d["date"])
 
 
-def forecast_day_grade(d):
-    """Letter grade A/B/C/D for a day, or None to skip (nothing there, off-angle,
-    short-period slop, or blown out). Fit to logged sessions: a base grade from
-    period/size, then softened one notch each for chop, off-core angle, or
-    non-offshore wind."""
+def wind_effect(spot, wdeg, wkt):
+    """How wind treats a given SPOT: 'clean' (no penalty), 'soften' (one grade),
+    or 'blown' (skip). Masonboro's north jetty shelters northerly wind; the open
+    beach feels strong offshore as bumpy."""
+    if wdeg is None:
+        return "clean"                                # unknown -> don't penalize
+    wk = wkt or 0
+    jb = SPOTS.get(spot, {}).get("jetty_block")
+    if jb and in_window(wdeg, jb[0], jb[1]):
+        return "clean"                                # sheltered by the jetty, any strength
+    if in_window(wdeg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG):
+        return "blown" if wk > FCST_MAX_ONSHORE_KT else "soften"      # onshore
+    if in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG):
+        if wk > LIVE_GALE_KT:
+            return "blown"                            # offshore gale, can't paddle out
+        return "soften" if wk > LIVE_MAX_WIND_KT else "clean"  # strong offshore (open) = bumpy
+    return "blown" if wk > LIVE_MAX_WIND_KT else "soften"      # cross-shore
+
+
+def forecast_day_grade(d, spot=DEFAULT_SPOT):
+    """Letter grade A/B/C/D for a day at a SPOT, or None to skip. Base grade from
+    period/size, then softened for chop, off-core angle, or the spot's wind."""
     total = d.get("max_total_ft") or 0
     swell = d.get("max_swell_ft") or 0
     period = d.get("period_at_max") or 0
@@ -262,13 +289,13 @@ def forecast_day_grade(d):
         return None                                   # off-angle
     if period < FCST_SWELL_MIN_PERIOD:
         return None                                   # short-period wind slop
-    if wkt is not None and in_window(wdeg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG) \
-            and wkt > FCST_MAX_ONSHORE_KT:
-        return None                                   # blown out onshore
+    we = wind_effect(spot, wdeg, wkt)
+    if we == "blown":
+        return None                                   # blown out for this spot
     if swell < FCST_SWELL_MIN_HEIGHT_FT and total < FCST_MIN_TOTAL_FT:
         return None                                   # nothing there
 
-    # ---- chop-dominated or tiny = automatic D ----
+    # ---- chop-dominated, tiny, or closeout = automatic D ----
     ratio = (swell / total) if total else 1.0
     if ratio < FCST_CLEAN_RATIO_MIN or swell < FCST_SWELL_MIN_HEIGHT_FT:
         return "D"
@@ -285,20 +312,17 @@ def forecast_day_grade(d):
 
     # ---- soften one notch per factor working against you ----
     softer = {"A": "B", "B": "C", "C": "D", "D": "D"}
-    # Wind coming off the land keeps it clean at ANY strength (strong offshore grooms
-    # it); only cross/onshore softens. Strong onshore already hard-skipped above.
-    offshore_dir = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG)
-    if not offshore_dir:
-        base = softer[base]                           # cross / onshore
+    if we == "soften":
+        base = softer[base]                           # spot's wind (cross / light onshore / strong open offshore)
     if not in_window(dir_deg, CORE_SWELL_MIN_DEG, CORE_SWELL_MAX_DEG):
         base = softer[base]                           # off-core swell angle (edge of window)
     return base
 
 
-def forecast_day_qualifies(d) -> bool:
+def forecast_day_qualifies(d, spot=DEFAULT_SPOT) -> bool:
     """Worth an OUTLOOK email — only genuinely good days (A or B). C/D still show
     on the dashboard, but don't fire a notification."""
-    return forecast_day_grade(d) in ("A", "B")
+    return forecast_day_grade(d, spot) in ("A", "B")
 
 
 def find_swell_days(forecast):
@@ -482,22 +506,27 @@ def check_buoys(state) -> dict:
           f"41110: {nearshore.get('wvht_ft')}ft DPD {nearshore.get('dpd_s')}s | "
           f"wind {wind.get('wind_kt')}kt {deg_to_compass(wind.get('wind_dir_deg'))}")
 
-    # GO = organized period + rideable face + wind not junking it. Strong OFFSHORE
-    # is CLEAN (grooms/hollows the wave) — only onshore, strong cross-shore, or an
-    # offshore gale kills it.
-    wdeg, wk = wind.get("wind_dir_deg"), (wind.get("wind_kt") or 0)
-    offshore_dir = in_window(wdeg, OFFSHORE_WIND_MIN_DEG, OFFSHORE_WIND_MAX_DEG)
-    onshore_dir = in_window(wdeg, ONSHORE_WIND_MIN_DEG, ONSHORE_WIND_MAX_DEG)
-    blown = ((onshore_dir and wk > FCST_MAX_ONSHORE_KT)                       # onshore & brisk
-             or (not offshore_dir and not onshore_dir and wk > LIVE_MAX_WIND_KT)  # strong cross-shore
-             or (offshore_dir and wk > LIVE_GALE_KT))                         # offshore gale
-    is_go = (period is not None and period >= LIVE_MIN_PERIOD
-             and face >= LIVE_MIN_FACE_FT and not blown)
-    tier = "GO" if is_go else None
+    # GO per SPOT — wind treats each differently (Masonboro's jetty shelters N).
+    wdeg, wkt = wind.get("wind_dir_deg"), wind.get("wind_kt")
+    # Clean-water gate: if the swell is only a small fraction of the total seas,
+    # it's wind chop, not surf (9/25 was 3.3ft swell in 8.9ft seas = 37% = junk).
+    seas = offshore.get("wvht_ft")
+    clean_water = (not seas) or (not height) or (height / seas) >= FCST_CLEAN_RATIO_MIN
+    rideable = (period is not None and period >= LIVE_MIN_PERIOD
+                and face >= LIVE_MIN_FACE_FT and clean_water)
+    verdicts = {}   # spot -> "clean" | "bumpy" | None
+    for key in SPOTS:
+        if not rideable:
+            verdicts[key] = None
+        else:
+            we = wind_effect(key, wdeg, wkt)
+            verdicts[key] = None if we == "blown" else ("clean" if we == "clean" else "bumpy")
+    any_go = any(verdicts.values())
+    tier = "GO" if any_go else None
 
     log_observation(offshore, nearshore, wind, tier)
 
-    if tier is None:
+    if not any_go:
         state.pop("live_tier", None)
         state.pop("live_time", None)
         return state
@@ -508,19 +537,33 @@ def check_buoys(state) -> dict:
         return state
 
     words = size_word(face)
-    wind_txt = wind_label(wind.get("wind_dir_deg"), wind.get("wind_kt"))
+    wind_txt = wind_label(wdeg, wkt)
     swell_dir = offshore.get("swell_dir", "?")
     flame = "🔥" if face >= LIVE_FIRE_FACE_FT else "🏄"
-    subject = f"{flame} IT'S ON: ~{words} ({period:.0f}s {swell_dir}) — {wind_txt}"
+    clean_spots = [SPOTS[k]["name"] for k, v in verdicts.items() if v == "clean"]
+    lead = clean_spots[0] if clean_spots else next(SPOTS[k]["name"] for k, v in verdicts.items() if v)
+    subject = f"{flame} IT'S ON at {lead}: ~{words} ({period:.0f}s {swell_dir})"
 
-    body = (f"Buoy says GO — Wrightsville Beach\n\n"
+    spot_lines = []
+    for key in SPOTS:
+        v, nm = verdicts[key], SPOTS[key]["name"]
+        if v == "clean":
+            spot_lines.append(f"  ✅ {nm}: GO — clean")
+        elif v == "bumpy":
+            spot_lines.append(f"  🌬️ {nm}: rideable but brisk/bumpy ({wind_txt})")
+        else:
+            spot_lines.append(f"  ⛔ {nm}: not today (wind or too small)")
+
+    body = (f"Buoy says GO — Wrightsville\n\n"
             f"Estimated surf: ~{words}  (about {face:.0f}ft faces)\n"
             f"  {period:.0f}s {swell_dir} groundswell — long-period stands up bigger on the sandbars.\n"
-            f"  Wind: {wind.get('wind_kt')} kt {deg_to_compass(wind.get('wind_dir_deg'))} — {wind_txt}\n\n"
+            f"  Wind: {wkt} kt {deg_to_compass(wdeg)} — {wind_txt}\n\n"
+            f"By spot (Masonboro's north jetty shelters N/NE wind; Out Front is open):\n"
+            + "\n".join(spot_lines) + "\n\n"
             f"Raw buoy readings:\n"
             f"  Offshore (Frying Pan 41013): {height} ft @ {period}s from {swell_dir}  ({offshore.get('time_utc')})\n"
             f"  Nearshore (Masonboro 41110): {nearshore.get('wvht_ft')} ft, DPD {nearshore.get('dpd_s')}s\n\n"
-            f"Live dashboard (outlook + current): https://llboyd7.github.io/swell-alert/\n"
+            f"Live dashboard: https://llboyd7.github.io/swell-alert/\n"
             f"{feedback_link()}")
     send_email(subject, body)
     state["live_tier"] = "GO"
