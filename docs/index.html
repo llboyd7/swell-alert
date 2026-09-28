@@ -71,6 +71,11 @@
   .day .wind.ok{color:var(--good);font-weight:600}
   .day .star{position:absolute;top:-8px;right:-6px;font-size:1rem}
 
+  .spotbar{display:flex;gap:8px;margin:0 0 12px}
+  .spotbtn{font:inherit;font-size:.82rem;font-weight:600;padding:6px 14px;border-radius:999px;
+    border:1px solid var(--line);background:var(--panel);color:var(--muted);cursor:pointer}
+  .spotbtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
   footer{margin-top:30px;color:var(--muted);font-size:.8rem;line-height:1.7}
   footer a{color:var(--accent)}
   .legend{margin-top:6px}
@@ -113,7 +118,8 @@
     </div>
   </div>
 
-  <h2>7-day outlook</h2>
+  <h2 id="fcHead">7-day outlook</h2>
+  <div class="spotbar" id="spotbar"></div>
   <div class="fc" id="fc"></div>
 
   <footer>
@@ -133,29 +139,39 @@ const LAT=34.20, LON=-77.79;
 const CFG = {
   IDEAL_MIN:90, IDEAL_MAX:180, CORE_MIN:100, CORE_MAX:160,
   OFF_MIN:245, OFF_MAX:45, ON_MIN:60, ON_MAX:190, MAXWIND:15,
-  PMIN:6.5, TOTMIN:2.5, SWMIN:1.5, MAXONSHORE:12,
+  PMIN:6.5, TOTMIN:2.5, SWMIN:1.5, MAXONSHORE:12, STRONG:18, GALE:28,
   A_PERIOD:10, A_HT:3.0, B_HT:2.0, CLEAN:0.55,
-  CLOSE_P:9, CLOSE_HT:3.0,
-  LIVE_P:9, LIVE_FACE:2.5
+  CLOSE_P:9, CLOSE_HT:3.0, LIVE_P:9, LIVE_FACE:2.5,
+  SPOTS: { outfront:{name:"Out Front", jetty:null}, masonboro:{name:"Masonboro", jetty:[300,67]} }
 };
+let CURRENT_SPOT = (()=>{ try{ return localStorage.getItem("spot")||"outfront"; }catch(e){ return "outfront"; } })();
+let LAST = null;
 const COMPASS=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 const compass = d => (d===null||d===undefined) ? "?" : COMPASS[Math.floor((((+d)+11.25)%360)/22.5)];
 function inWin(deg,lo,hi){ if(deg===null||deg===undefined) return false; deg=+deg;
   return lo<=hi ? (deg>=lo&&deg<=hi) : (deg>=lo||deg<=hi); }
 
-function grade(swell, period, total, dirDeg, wDeg, wKt){
+function windEffect(spot, wDeg, wKt){                 // 'clean' | 'soften' | 'blown'
+  if(wDeg==null) return "clean";
+  const wk = wKt||0, jb = CFG.SPOTS[spot] && CFG.SPOTS[spot].jetty;
+  if(jb && inWin(wDeg, jb[0], jb[1])) return "clean";               // jetty-sheltered
+  if(inWin(wDeg, CFG.ON_MIN, CFG.ON_MAX)) return wk>CFG.MAXONSHORE ? "blown" : "soften";
+  if(inWin(wDeg, CFG.OFF_MIN, CFG.OFF_MAX)) return wk>CFG.GALE ? "blown" : (wk>CFG.STRONG ? "soften" : "clean");
+  return wk>CFG.STRONG ? "blown" : "soften";                        // cross-shore
+}
+function grade(spot, swell, period, total, dirDeg, wDeg, wKt){
   swell=swell||0; period=period||0; total=total||0;
   if(!inWin(dirDeg, CFG.IDEAL_MIN, CFG.IDEAL_MAX)) return null;      // off-angle
   if(period < CFG.PMIN) return null;                                 // short-period slop
-  if(wKt!=null && inWin(wDeg, CFG.ON_MIN, CFG.ON_MAX) && wKt>CFG.MAXONSHORE) return null; // blown out
+  const we = windEffect(spot, wDeg, wKt);
+  if(we==="blown") return null;                                      // blown out for this spot
   if(swell < CFG.SWMIN && total < CFG.TOTMIN) return null;           // nothing
   const ratio = total ? swell/total : 1;
   if(ratio < CFG.CLEAN || swell < CFG.SWMIN) return "D";             // chop / tiny
   if(period < CFG.CLOSE_P && swell >= CFG.CLOSE_HT) return "D";      // big + short period = closeouts
   let base = (period>=CFG.A_PERIOD || swell>=CFG.A_HT) ? "A" : (swell>=CFG.B_HT ? "B" : "C");
   const softer = {A:"B", B:"C", C:"D", D:"D"};
-  const offshoreDir = inWin(wDeg, CFG.OFF_MIN, CFG.OFF_MAX);  // off the land = clean at any strength
-  if(!offshoreDir) base = softer[base];                             // cross / onshore
+  if(we==="soften") base = softer[base];                            // spot's wind
   if(!inWin(dirDeg, CFG.CORE_MIN, CFG.CORE_MAX)) base = softer[base]; // off-core angle
   return base;
 }
@@ -191,17 +207,15 @@ async function fetchForecast(){
     if(W.time[i].slice(11,13)==="08"){ const date=W.time[i].slice(0,10);
       if(days[date]){ days[date].w8kt=W.wind_speed_10m[i]; days[date].w8deg=W.wind_direction_10m[i]; } }
   }
-  return Object.values(days).sort((a,b)=> a.date<b.date?-1:1).map(d=>{
-    const g = grade(d.swell, d.period, d.total, d.dir, d.w8deg, d.w8kt);
-    return {
-      date:d.date, total_ft: d.total? Math.round(d.total*10)/10 : 0,
-      period_s: d.period!=null? Math.round(d.period) : null,
-      dir_compass: compass(d.dir), ideal_dir: inWin(d.dir, CFG.IDEAL_MIN, CFG.IDEAL_MAX),
-      wind_8am_kt: d.w8kt!=null? Math.round(d.w8kt) : null, wind_8am_compass: compass(d.w8deg),
-      wind_8am_offshore: inWin(d.w8deg, CFG.OFF_MIN, CFG.OFF_MAX) && ((d.w8kt||99)<=CFG.MAXWIND),
-      grade: g, is_swell_day: (g==="A"||g==="B")
-    };
-  });
+  return Object.values(days).sort((a,b)=> a.date<b.date?-1:1).map(d=>({
+    date:d.date, swell:d.swell, period:d.period, total:d.total, dir_deg:d.dir,
+    total_ft: d.total? Math.round(d.total*10)/10 : 0,
+    period_s: d.period!=null? Math.round(d.period) : null,
+    dir_compass: compass(d.dir), ideal_dir: inWin(d.dir, CFG.IDEAL_MIN, CFG.IDEAL_MAX),
+    wind_8am_kt: d.w8kt!=null? Math.round(d.w8kt) : null, wind_8am_deg: d.w8deg,
+    wind_8am_compass: compass(d.w8deg),
+    wind_8am_offshore: inWin(d.w8deg, CFG.OFF_MIN, CFG.OFF_MAX) && ((d.w8kt||99)<=CFG.MAXWIND)
+  }));
 }
 
 async function fetchCurrent(){
@@ -214,6 +228,16 @@ async function fetchCurrent(){
 }
 
 function render(d){
+  LAST = d;
+  // spot toggle
+  const bar = document.getElementById("spotbar");
+  bar.innerHTML = Object.entries(CFG.SPOTS).map(([k,v])=>
+    `<button class="spotbtn${k===CURRENT_SPOT?' on':''}" data-spot="${k}">${v.name}</button>`).join("");
+  bar.querySelectorAll(".spotbtn").forEach(b=> b.onclick=()=>{
+    CURRENT_SPOT=b.dataset.spot; try{localStorage.setItem("spot",CURRENT_SPOT);}catch(e){} render(LAST);
+  });
+  document.getElementById("fcHead").textContent = "7-day outlook — " + CFG.SPOTS[CURRENT_SPOT].name;
+
   document.getElementById("updated").textContent = d.updated_utc;
   document.getElementById("ago").textContent = agoText(d.updated_utc);
 
@@ -262,12 +286,14 @@ function render(d){
   const fc = document.getElementById("fc");
   fc.innerHTML = "";
   d.forecast.forEach(day=>{
+    const g = grade(CURRENT_SPOT, day.swell, day.period, day.total, day.dir_deg, day.wind_8am_deg, day.wind_8am_kt);
+    const isHit = (g==="A"||g==="B");
     const dt = new Date(day.date+"T12:00:00");
     const el = document.createElement("div");
-    el.className = "day" + (day.is_swell_day?" hit":"");
+    el.className = "day" + (isHit?" hit":"");
     const hasWind = day.wind_8am_kt!==null && day.wind_8am_kt!==undefined;
     el.innerHTML = `
-      ${day.grade?('<div class="star">'+({A:'🏆',B:'⭐',C:'〰️',D:'🚫'}[day.grade]||'')+'</div>'):''}
+      ${g?('<div class="star">'+({A:'🏆',B:'⭐',C:'〰️',D:'🚫'}[g]||'')+'</div>'):''}
       <div class="dow">${DOW[dt.getUTCDay()]}</div>
       <div class="dm">${dt.getUTCMonth()+1}/${dt.getUTCDate()}</div>
       <div class="ht">${f1(day.total_ft)}ft</div>
