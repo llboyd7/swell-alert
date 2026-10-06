@@ -200,6 +200,7 @@ def latest_spec(station):
         "swell_period_s": parse_float(f[7]),
         "swell_dir": f[10] if len(f) > 10 else "?",     # compass, e.g. "SE"
         "mean_wave_dir_deg": mwd,
+        "steepness": f[12] if len(f) > 12 else None,    # SWELL / AVERAGE / STEEP / VERY_STEEP
     }
 
 
@@ -508,10 +509,14 @@ def check_buoys(state) -> dict:
 
     # GO per SPOT — wind treats each differently (Masonboro's jetty shelters N).
     wdeg, wkt = wind.get("wind_dir_deg"), wind.get("wind_kt")
-    # Clean-water gate: if the swell is only a small fraction of the total seas,
-    # it's wind chop, not surf (9/25 was 3.3ft swell in 8.9ft seas = 37% = junk).
+    # Clean-water gate: swell must be a real fraction of total seas (not wind chop),
+    # AND the buoy's own steepness flag must not be VERY_STEEP (a steep, choppy,
+    # "drifty" sea — 10/06 was VERY_STEEP and came in rough/drifty, as the buddy's
+    # period-coherence theory predicts).
     seas = offshore.get("wvht_ft")
-    clean_water = (not seas) or (not height) or (height / seas) >= FCST_CLEAN_RATIO_MIN
+    steep = offshore.get("steepness")
+    clean_water = (((not seas) or (not height) or (height / seas) >= FCST_CLEAN_RATIO_MIN)
+                   and steep != "VERY_STEEP")
     rideable = (period is not None and period >= LIVE_MIN_PERIOD
                 and face >= LIVE_MIN_FACE_FT and clean_water)
     verdicts = {}   # spot -> "clean" | "bumpy" | None
