@@ -246,13 +246,14 @@ function render(d){
   const state = document.getElementById("state");
   const detail = document.getElementById("heroDetail");
   const o = d.offshore;
-  hero.className = "hero " + (d.tier==="FIRE"?"is-fire":d.tier==="HEADS_UP"?"is-up":"is-flat");
-  if(d.tier==="FIRE"){
-    state.textContent = "🔥 It’s on";
-    detail.innerHTML = `Long-period energy confirmed — <b>${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s</b> from <b>${f1(o.swell_dir)}</b> at Frying Pan Shoals.`;
-  } else if(d.tier==="HEADS_UP"){
-    state.textContent = "🌊 Long-period energy showing";
-    detail.innerHTML = `<b>${f1(o.swell_period_s)}s</b> swell from <b>${f1(o.swell_dir)}</b> at the buoy — worth a look.`;
+  const t = d.tier;
+  hero.className = "hero " + (t==="GO"||t==="FIRE"?"is-fire":t==="SIZE"||t==="HEADS_UP"?"is-up":"is-flat");
+  if(t==="GO"||t==="FIRE"){
+    state.textContent = "🏄 It’s on — clean";
+    detail.innerHTML = `Buoy confirms clean rideable energy — <b>${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s</b> from <b>${f1(o.swell_dir)}</b>.`;
+  } else if(t==="SIZE"||t==="HEADS_UP"){
+    state.textContent = "🌬️ Size up — but windy/rough";
+    detail.innerHTML = `There’s size in the water but it’s not clean — rideable if you’re keen, expect it jumbled. Mase may be sheltered.`;
   } else {
     state.textContent = "😴 Flat / short-period";
     detail.innerHTML = `Nothing running right now — offshore reading <b>${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s</b>. The alert watches hourly.`;
@@ -263,8 +264,8 @@ function render(d){
   document.getElementById("offBig").textContent = `${f1(o.swell_ht_ft)} ft @ ${f1(o.swell_period_s)}s`;
   document.getElementById("offRow").innerHTML = `from <b>${f1(o.swell_dir)}</b> · seas <b>${f1(o.seas_ft)} ft</b>`;
   const ot = document.getElementById("offTag");
-  if(d.tier==="FIRE"){ ot.innerHTML = `<span class="tag warn">firing 🔥</span>`; }
-  else if(d.tier==="HEADS_UP"){ ot.innerHTML = `<span class="tag warn">long-period</span>`; }
+  if(t==="GO"||t==="FIRE"){ ot.innerHTML = `<span class="tag good">clean GO 🏄</span>`; }
+  else if(t==="SIZE"||t==="HEADS_UP"){ ot.innerHTML = `<span class="tag warn">size up, windy</span>`; }
   else { ot.innerHTML = `<span class="tag">below alert threshold</span>`; }
 
   // Nearshore

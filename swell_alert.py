@@ -41,6 +41,9 @@ LIVE_MIN_FACE_FT = 2.5      # estimated beach face (waist+) to send a GO
 LIVE_FIRE_FACE_FT = 5.0     # head-high+ face = 🔥 emphasis (else 🏄)
 LIVE_MAX_WIND_KT = 18.0     # strong CROSS-shore above this = too bumpy (offshore is fine)
 LIVE_GALE_KT = 28.0         # even offshore, above this you can't paddle out
+LIVE_SIZE_UP_FT = 4.0       # nearshore 41110 >= this = a lower "SIZE UP (windy/rough)" flag
+#   ^ big-but-junky days (10/06, 10/11 were C-/D+ with head-high sets) are worth a
+#     heads-up, clearly labeled "size up but windy" — NOT the clean "IT'S ON".
 #   ^ 9/24 was really good at 4ft@11s in 20kt N OFFSHORE — strong offshore grooms the
 #     wave (hollow/clean), it does NOT junk it. Only onshore / strong cross / gale kills it.
 
@@ -527,51 +530,75 @@ def check_buoys(state) -> dict:
             we = wind_effect(key, wdeg, wkt)
             verdicts[key] = None if we == "blown" else ("clean" if we == "clean" else "bumpy")
     any_go = any(verdicts.values())
-    tier = "GO" if any_go else None
+
+    # SIZE UP (lower tier): real nearshore size even when it's NOT clean — "there's
+    # size but it's windy/junky" (10/06, 10/11 were C-/D+ with head-high sets).
+    near = nearshore.get("wvht_ft")
+    size_up = (not any_go) and (near is not None and near >= LIVE_SIZE_UP_FT)
+    tier = "GO" if any_go else ("SIZE" if size_up else None)
 
     log_observation(offshore, nearshore, wind, tier)
 
-    if not any_go:
+    if tier is None:
         state.pop("live_tier", None)
         state.pop("live_time", None)
         return state
 
-    # One swell shouldn't email repeatedly.
-    if state.get("live_tier") == "GO" and hours_since(state.get("live_time", "")) < COOLDOWN_HOURS:
+    # One swell shouldn't email repeatedly (shared cooldown across both tiers).
+    if state.get("live_tier") in ("GO", "SIZE") and hours_since(state.get("live_time", "")) < COOLDOWN_HOURS:
         print("Live alert cooldown active.")
         return state
 
-    words = size_word(face)
     wind_txt = wind_label(wdeg, wkt)
     swell_dir = offshore.get("swell_dir", "?")
-    flame = "🔥" if face >= LIVE_FIRE_FACE_FT else "🏄"
-    clean_spots = [SPOTS[k]["name"] for k, v in verdicts.items() if v == "clean"]
-    lead = clean_spots[0] if clean_spots else next(SPOTS[k]["name"] for k, v in verdicts.items() if v)
-    subject = f"{flame} IT'S ON at {lead}: ~{words} ({period:.0f}s {swell_dir})"
 
-    spot_lines = []
-    for key in SPOTS:
-        v, nm = verdicts[key], SPOTS[key]["name"]
-        if v == "clean":
-            spot_lines.append(f"  ✅ {nm}: GO — clean")
-        elif v == "bumpy":
-            spot_lines.append(f"  🌬️ {nm}: rideable but brisk/bumpy ({wind_txt})")
-        else:
-            spot_lines.append(f"  ⛔ {nm}: not today (wind or too small)")
+    if any_go:
+        words = size_word(face)
+        flame = "🔥" if face >= LIVE_FIRE_FACE_FT else "🏄"
+        clean_spots = [SPOTS[k]["name"] for k, v in verdicts.items() if v == "clean"]
+        lead = clean_spots[0] if clean_spots else next(SPOTS[k]["name"] for k, v in verdicts.items() if v)
+        subject = f"{flame} IT'S ON at {lead}: ~{words} ({period:.0f}s {swell_dir})"
+        spot_lines = []
+        for key in SPOTS:
+            v, nm = verdicts[key], SPOTS[key]["name"]
+            if v == "clean":
+                spot_lines.append(f"  ✅ {nm}: GO — clean")
+            elif v == "bumpy":
+                spot_lines.append(f"  🌬️ {nm}: rideable but brisk/bumpy ({wind_txt})")
+            else:
+                spot_lines.append(f"  ⛔ {nm}: not today (wind or too small)")
+        body = (f"Buoy says GO — Wrightsville\n\n"
+                f"Estimated surf: ~{words}  (about {face:.0f}ft faces)\n"
+                f"  {period:.0f}s {swell_dir} groundswell — long-period stands up bigger on the sandbars.\n"
+                f"  Wind: {wkt} kt {deg_to_compass(wdeg)} — {wind_txt}\n\n"
+                f"By spot (Masonboro's north jetty shelters N/NE wind; Out Front is open):\n"
+                + "\n".join(spot_lines) + "\n\n"
+                f"Raw buoy readings:\n"
+                f"  Offshore (Frying Pan 41013): {height} ft @ {period}s from {swell_dir}  ({offshore.get('time_utc')})\n"
+                f"  Nearshore (Masonboro 41110): {near} ft, DPD {nearshore.get('dpd_s')}s\n\n"
+                f"Live dashboard: https://llboyd7.github.io/swell-alert/\n"
+                f"{feedback_link()}")
+    else:   # SIZE UP tier
+        near_word = size_word(near)
+        subject = f"🌬️ SIZE UP: ~{near_word} but windy/rough — {wind_txt}"
+        spot_notes = []
+        for key in SPOTS:
+            tag = {"clean": "likely the cleaner call (wind sheltered)",
+                   "soften": "workable but textured",
+                   "blown": "onshore/jumbled"}[wind_effect(key, wdeg, wkt)]
+            spot_notes.append(f"  {SPOTS[key]['name']}: {tag}")
+        body = (f"There's SIZE — but it's not clean. Wrightsville\n\n"
+                f"Nearshore (Masonboro 41110): {near} ft @ {nearshore.get('dpd_s')}s — breaking roughly {near_word}.\n"
+                f"Wind: {wkt} kt {deg_to_compass(wdeg)} — {wind_txt}. Expect jumbled, hard to find a corner.\n\n"
+                f"By spot (jetty shelters N/NE at Mase):\n"
+                + "\n".join(spot_notes) + "\n\n"
+                f"Rideable if you're keen — this is the 'size is up but junky' heads-up, not the clean GO.\n"
+                f"Offshore 41013: {height} ft swell @ {period}s, total seas {seas} ft ({steep}).\n\n"
+                f"Live dashboard: https://llboyd7.github.io/swell-alert/\n"
+                f"{feedback_link()}")
 
-    body = (f"Buoy says GO — Wrightsville\n\n"
-            f"Estimated surf: ~{words}  (about {face:.0f}ft faces)\n"
-            f"  {period:.0f}s {swell_dir} groundswell — long-period stands up bigger on the sandbars.\n"
-            f"  Wind: {wkt} kt {deg_to_compass(wdeg)} — {wind_txt}\n\n"
-            f"By spot (Masonboro's north jetty shelters N/NE wind; Out Front is open):\n"
-            + "\n".join(spot_lines) + "\n\n"
-            f"Raw buoy readings:\n"
-            f"  Offshore (Frying Pan 41013): {height} ft @ {period}s from {swell_dir}  ({offshore.get('time_utc')})\n"
-            f"  Nearshore (Masonboro 41110): {nearshore.get('wvht_ft')} ft, DPD {nearshore.get('dpd_s')}s\n\n"
-            f"Live dashboard: https://llboyd7.github.io/swell-alert/\n"
-            f"{feedback_link()}")
     send_email(subject, body)
-    state["live_tier"] = "GO"
+    state["live_tier"] = tier
     state["live_time"] = datetime.now(timezone.utc).isoformat()
     return state
 
