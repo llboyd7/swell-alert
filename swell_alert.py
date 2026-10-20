@@ -44,6 +44,9 @@ LIVE_GALE_KT = 28.0         # even offshore, above this you can't paddle out
 LIVE_SIZE_UP_FT = 4.0       # nearshore 41110 >= this = a lower "SIZE UP (windy/rough)" flag
 #   ^ big-but-junky days (10/06, 10/11 were C-/D+ with head-high sets) are worth a
 #     heads-up, clearly labeled "size up but windy" — NOT the clean "IT'S ON".
+SHELTER_RATIO_MIN = 0.45    # a jetty-sheltered spot can rescue a BORDERLINE offshore
+#   sea (0.45–0.55 clean ratio) into a clean GO — 10/20 was 0.54 and Mase barrelled —
+#   but NOT a genuinely filthy one (9/25 was 0.37 and stayed junk even at Mase).
 #   ^ 9/24 was really good at 4ft@11s in 20kt N OFFSHORE — strong offshore grooms the
 #     wave (hollow/clean), it does NOT junk it. Only onshore / strong cross / gale kills it.
 
@@ -505,35 +508,44 @@ def check_buoys(state) -> dict:
 
     period = offshore.get("swell_period_s")
     height = offshore.get("swell_ht_ft")
-    face = round(face_height_ft(height, period), 1) if height is not None else 0.0
-    print(f"41013: {height}ft @ {period}s {offshore.get('swell_dir')} (~{face}ft face) | "
-          f"41110: {nearshore.get('wvht_ft')}ft DPD {nearshore.get('dpd_s')}s | "
-          f"wind {wind.get('wind_kt')}kt {deg_to_compass(wind.get('wind_dir_deg'))}")
-
-    # GO per SPOT — wind treats each differently (Masonboro's jetty shelters N).
     wdeg, wkt = wind.get("wind_dir_deg"), wind.get("wind_kt")
-    # Clean-water gate: swell must be a real fraction of total seas (not wind chop),
-    # AND the buoy's own steepness flag must not be VERY_STEEP (a steep, choppy,
-    # "drifty" sea — 10/06 was VERY_STEEP and came in rough/drifty, as the buddy's
-    # period-coherence theory predicts).
+    near = nearshore.get("wvht_ft")
     seas = offshore.get("wvht_ft")
     steep = offshore.get("steepness")
-    clean_water = (((not seas) or (not height) or (height / seas) >= FCST_CLEAN_RATIO_MIN)
-                   and steep != "VERY_STEEP")
-    rideable = (period is not None and period >= LIVE_MIN_PERIOD
-                and face >= LIVE_MIN_FACE_FT and clean_water)
+
+    # Size off the NEARSHORE buoy (41110) — the real breaking size. Shoaling the
+    # offshore swell overstated big ones (10/20 read chest-high, not "overhead").
+    size_ft = near if near is not None else round(face_height_ft(height, period), 1)
+    print(f"41013: {height}ft @ {period}s {offshore.get('swell_dir')} ({steep}) | "
+          f"41110: {near}ft DPD {nearshore.get('dpd_s')}s | size~{size_ft}ft | "
+          f"wind {wkt}kt {deg_to_compass(wdeg)}")
+
+    # Is the OPEN-ocean reading clean? (swell a real fraction of seas, not VERY_STEEP)
+    offshore_clean = (((not seas) or (not height) or (height / seas) >= FCST_CLEAN_RATIO_MIN)
+                      and steep != "VERY_STEEP")
+    organized = period is not None and period >= LIVE_MIN_PERIOD
+    big = size_ft is not None and size_ft >= LIVE_MIN_FACE_FT
+
     verdicts = {}   # spot -> "clean" | "bumpy" | None
     for key in SPOTS:
-        if not rideable:
+        we = wind_effect(key, wdeg, wkt)
+        if we == "blown":
             verdicts[key] = None
-        else:
-            we = wind_effect(key, wdeg, wkt)
-            verdicts[key] = None if we == "blown" else ("clean" if we == "clean" else "bumpy")
+            continue
+        # A jetty-sheltered spot stays clean when the open-ocean chop is just the wind
+        # the jetty blocks (10/20: barrels at Mase in a 0.54-ratio sea) — but only if
+        # the sea is merely borderline, not filthy (9/25's 0.37 was junk even at Mase).
+        jb = SPOTS[key].get("jetty_block")
+        sheltered = bool(jb and in_window(wdeg, jb[0], jb[1]))
+        semiclean = (((not seas) or (not height) or (height / seas) >= SHELTER_RATIO_MIN)
+                     and steep != "VERY_STEEP")
+        spot_clean = offshore_clean or (sheltered and semiclean)
+        verdicts[key] = (("clean" if we == "clean" else "bumpy")
+                         if (organized and big and spot_clean) else None)
     any_go = any(verdicts.values())
 
     # SIZE UP (lower tier): real nearshore size even when it's NOT clean — "there's
     # size but it's windy/junky" (10/06, 10/11 were C-/D+ with head-high sets).
-    near = nearshore.get("wvht_ft")
     size_up = (not any_go) and (near is not None and near >= LIVE_SIZE_UP_FT)
     tier = "GO" if any_go else ("SIZE" if size_up else None)
 
@@ -553,8 +565,8 @@ def check_buoys(state) -> dict:
     swell_dir = offshore.get("swell_dir", "?")
 
     if any_go:
-        words = size_word(face)
-        flame = "🔥" if face >= LIVE_FIRE_FACE_FT else "🏄"
+        words = size_word(size_ft)
+        flame = "🔥" if size_ft >= LIVE_FIRE_FACE_FT else "🏄"
         clean_spots = [SPOTS[k]["name"] for k, v in verdicts.items() if v == "clean"]
         lead = clean_spots[0] if clean_spots else next(SPOTS[k]["name"] for k, v in verdicts.items() if v)
         subject = f"{flame} IT'S ON at {lead}: ~{words} ({period:.0f}s {swell_dir})"
@@ -568,8 +580,8 @@ def check_buoys(state) -> dict:
             else:
                 spot_lines.append(f"  ⛔ {nm}: not today (wind or too small)")
         body = (f"Buoy says GO — Wrightsville\n\n"
-                f"Estimated surf: ~{words}  (about {face:.0f}ft faces)\n"
-                f"  {period:.0f}s {swell_dir} groundswell — long-period stands up bigger on the sandbars.\n"
+                f"Estimated surf: ~{words}  (nearshore 41110 ~{size_ft}ft)\n"
+                f"  {period:.0f}s {swell_dir} groundswell at Frying Pan Shoals.\n"
                 f"  Wind: {wkt} kt {deg_to_compass(wdeg)} — {wind_txt}\n\n"
                 f"By spot (Masonboro's north jetty shelters N/NE wind; Out Front is open):\n"
                 + "\n".join(spot_lines) + "\n\n"
