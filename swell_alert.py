@@ -47,6 +47,9 @@ LIVE_SIZE_UP_FT = 4.0       # nearshore 41110 >= this = a lower "SIZE UP (windy/
 SHELTER_RATIO_MIN = 0.45    # a jetty-sheltered spot can rescue a BORDERLINE offshore
 #   sea (0.45–0.55 clean ratio) into a clean GO — 10/20 was 0.54 and Mase barrelled —
 #   but NOT a genuinely filthy one (9/25 was 0.37 and stayed junk even at Mase).
+NEARSHORE_CLEAN_DPD = 8.0   # if the NEARSHORE buoy's dominant period >= this, the swell
+#   is running the show at the beach = clean (10/26 A- had DPD 10s, 10/27 B+ had 11s;
+#   junk days 9/25/10/06 had DPD 5-6s). A direct "clean vs chop" read at the sandbars.
 #   ^ 9/24 was really good at 4ft@11s in 20kt N OFFSHORE — strong offshore grooms the
 #     wave (hollow/clean), it does NOT junk it. Only onshore / strong cross / gale kills it.
 
@@ -523,6 +526,8 @@ def check_buoys(state) -> dict:
     # Is the OPEN-ocean reading clean? (swell a real fraction of seas, not VERY_STEEP)
     offshore_clean = (((not seas) or (not height) or (height / seas) >= FCST_CLEAN_RATIO_MIN)
                       and steep != "VERY_STEEP")
+    near_dpd = nearshore.get("dpd_s")
+    nearshore_clean = near_dpd is not None and near_dpd >= NEARSHORE_CLEAN_DPD  # swell runs the nearshore
     organized = period is not None and period >= LIVE_MIN_PERIOD
     big = size_ft is not None and size_ft >= LIVE_MIN_FACE_FT
 
@@ -539,7 +544,7 @@ def check_buoys(state) -> dict:
         sheltered = bool(jb and in_window(wdeg, jb[0], jb[1]))
         semiclean = (((not seas) or (not height) or (height / seas) >= SHELTER_RATIO_MIN)
                      and steep != "VERY_STEEP")
-        spot_clean = offshore_clean or (sheltered and semiclean)
+        spot_clean = offshore_clean or nearshore_clean or (sheltered and semiclean)
         verdicts[key] = (("clean" if we == "clean" else "bumpy")
                          if (organized and big and spot_clean) else None)
     any_go = any(verdicts.values())
