@@ -44,10 +44,13 @@ LIVE_GALE_KT = 28.0         # even offshore, above this you can't paddle out
 LIVE_SIZE_UP_FT = 4.0       # nearshore 41110 >= this = a lower "SIZE UP (windy/rough)" flag
 #   ^ big-but-junky days (10/06, 10/11 were C-/D+ with head-high sets) are worth a
 #     heads-up, clearly labeled "size up but windy" — NOT the clean "IT'S ON".
-SHELTER_RATIO_MIN = 0.45    # a jetty-sheltered spot can rescue a BORDERLINE offshore
-#   sea (0.45–0.55 clean ratio) into a clean GO — 10/20 was 0.54 and Mase barrelled —
-#   but NOT a genuinely filthy one (9/25 was 0.37 and stayed junk even at Mase).
-NEARSHORE_CLEAN_DPD = 8.0   # if the NEARSHORE buoy's dominant period >= this, the swell
+SIZE_UP_MIN_DPD = 6.0       # ...but DON'T even cry "size up" when it's pure wind slop:
+#   nearshore DPD < 6s OR a VERY_STEEP sea = chop, not head-high sets. 11/17 1:26pm was
+#   4.3ft @ DPD 5s VERY_STEEP (junk) and still tripped SIZE-UP — this floor kills that.
+SHELTER_RATIO_MIN = 0.50    # a jetty-sheltered spot can rescue a BORDERLINE offshore
+#   sea (0.50–0.55 clean ratio) into a clean GO — 10/20 was 0.54 and Mase barrelled —
+#   but NOT a genuinely filthy one (9/25 was 0.37, and 11/17 4am was 0.48 — junk by sunrise).
+NEARSHORE_CLEAN_DPD = 8.5   # if the NEARSHORE buoy's dominant period >= this, the swell
 #   is running the show at the beach = clean (10/26 A- had DPD 10s, 10/27 B+ had 11s;
 #   junk days 9/25/10/06 had DPD 5-6s). A direct "clean vs chop" read at the sandbars.
 #   ^ 9/24 was really good at 4ft@11s in 20kt N OFFSHORE — strong offshore grooms the
@@ -551,7 +554,9 @@ def check_buoys(state) -> dict:
 
     # SIZE UP (lower tier): real nearshore size even when it's NOT clean — "there's
     # size but it's windy/junky" (10/06, 10/11 were C-/D+ with head-high sets).
-    size_up = (not any_go) and (near is not None and near >= LIVE_SIZE_UP_FT)
+    size_up = (not any_go) and (near is not None and near >= LIVE_SIZE_UP_FT) \
+              and steep != "VERY_STEEP" \
+              and (near_dpd is None or near_dpd >= SIZE_UP_MIN_DPD)
     tier = "GO" if any_go else ("SIZE" if size_up else None)
 
     log_observation(offshore, nearshore, wind, tier)
