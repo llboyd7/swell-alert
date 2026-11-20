@@ -531,7 +531,12 @@ def check_buoys(state) -> dict:
                       and steep != "VERY_STEEP")
     near_dpd = nearshore.get("dpd_s")
     nearshore_clean = near_dpd is not None and near_dpd >= NEARSHORE_CLEAN_DPD  # swell runs the nearshore
-    organized = period is not None and period >= LIVE_MIN_PERIOD
+    # "Organized" can come from EITHER buoy. The offshore 41013 swell partition often
+    # drops to MM (no period) when wind-sea tops the open-ocean point, even while the
+    # NEARSHORE 41110 is reading a clean 9s+ at the sandbars (11/20: offshore period MM,
+    # but 41110 was 5.2ft @ DPD 9.0 — a real surfable swell the old gate threw out).
+    organized = (period is not None and period >= LIVE_MIN_PERIOD) \
+                or (near_dpd is not None and near_dpd >= LIVE_MIN_PERIOD)
     big = size_ft is not None and size_ft >= LIVE_MIN_FACE_FT
 
     verdicts = {}   # spot -> "clean" | "bumpy" | None
